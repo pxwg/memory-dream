@@ -538,6 +538,7 @@ class MemoryDreamCliTests(unittest.TestCase):
             (source / "note").mkdir(parents=True)
             (artifact / "memory").mkdir(parents=True)
             cache.mkdir(parents=True)
+            (source / "index.typ").write_text("= Project Memory\n", encoding="utf-8")
             (artifact / "Memory.md").write_text("[Missing](memory/2605221059-missing.md)\n", encoding="utf-8")
             (dream_root / "dream.toml").write_text(
                 "\n".join(
@@ -561,6 +562,60 @@ class MemoryDreamCliTests(unittest.TestCase):
             context = self.run_cli("context", "--dream-root", str(dream_root), cwd=project)
             self.assertEqual(context.returncode, 1)
             self.assertIn("context references missing note artifacts", context.stderr)
+
+    def test_context_rejects_stale_index_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project"
+            project.mkdir()
+            dream_root = base / "dream"
+            bin_dir = base / "bin"
+            bin_dir.mkdir()
+            install_fake_zk_lsp(bin_dir / "zk-lsp")
+            env = {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+            init = self.run_cli("init", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(init.returncode, 0, init.stderr)
+            project_dir = next((dream_root / "projects").iterdir())
+            source = project_dir / "source"
+            (source / "note" / "2605221059.typ").write_text("= First <2605221059>\n", encoding="utf-8")
+            build = self.run_cli("build", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(build.returncode, 0, build.stderr)
+
+            memory = project_dir / "artifact" / "Memory.md"
+            newer = memory.stat().st_mtime + 10
+            (source / "index.typ").write_text("= Project Memory\n\n- stale\n", encoding="utf-8")
+            os.utime(source / "index.typ", (newer, newer))
+
+            context = self.run_cli("context", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(context.returncode, 1)
+            self.assertIn("artifact stale", context.stderr)
+            self.assertIn("run `memory-dream build`", context.stderr)
+
+    def test_context_rejects_unbuilt_new_note(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project"
+            project.mkdir()
+            dream_root = base / "dream"
+            bin_dir = base / "bin"
+            bin_dir.mkdir()
+            install_fake_zk_lsp(bin_dir / "zk-lsp")
+            env = {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+            init = self.run_cli("init", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(init.returncode, 0, init.stderr)
+            project_dir = next((dream_root / "projects").iterdir())
+            source = project_dir / "source"
+            build = self.run_cli("build", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(build.returncode, 0, build.stderr)
+
+            (source / "note" / "2605221059.typ").write_text("= New Note <2605221059>\n", encoding="utf-8")
+
+            context = self.run_cli("context", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(context.returncode, 1)
+            self.assertIn("artifact stale: missing", context.stderr)
+            self.assertIn("run `memory-dream build`", context.stderr)
 
     def test_bad_registry_project_entry_reports_user_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -181,6 +181,7 @@ def cmd_context(args: argparse.Namespace) -> int:
     memory_file = project.artifact / "Memory.md"
     if not memory_file.exists():
         raise MemoryDreamError(f"artifact missing: {memory_file}; run `memory-dream build`")
+    ensure_context_artifacts_current(project)
     max_notes = getattr(args, "max_notes", 20)
     if max_notes < 0:
         raise MemoryDreamError("--max-notes must be non-negative")
@@ -619,6 +620,39 @@ def render_context(project: Project, *, include_all: bool, max_notes: int) -> st
         parts.extend(["", f"<!-- {omitted} referenced note(s) omitted by --max-notes. -->"])
 
     return "\n".join(parts).rstrip() + "\n"
+
+
+def ensure_context_artifacts_current(project: Project) -> None:
+    require_source_wiki(project)
+    memory_file = project.artifact / "Memory.md"
+    index_path = project.source / "index.typ"
+    if source_newer_than_artifact(index_path, memory_file):
+        raise_stale_context(index_path, memory_file)
+
+    expected_artifacts: set[str] = set()
+    for note_path in sorted((project.source / "note").glob("*.typ")):
+        info = parse_note_info(note_path)
+        artifact = project.artifact / "memory" / artifact_name(info["id"], info["title"])
+        expected_artifacts.add(artifact.name)
+        if not artifact.exists():
+            raise MemoryDreamError(f"artifact stale: missing {artifact}; run `memory-dream build`")
+        if source_newer_than_artifact(note_path, artifact):
+            raise_stale_context(note_path, artifact)
+
+    artifact_dir = project.artifact / "memory"
+    if artifact_dir.exists():
+        orphaned = sorted(path for path in artifact_dir.glob("*.md") if path.name not in expected_artifacts)
+        if orphaned:
+            paths = ", ".join(str(path) for path in orphaned)
+            raise MemoryDreamError(f"artifact stale: orphaned note artifact(s): {paths}; run `memory-dream build`")
+
+
+def source_newer_than_artifact(source: Path, artifact: Path) -> bool:
+    return source.stat().st_mtime_ns > artifact.stat().st_mtime_ns
+
+
+def raise_stale_context(source: Path, artifact: Path) -> None:
+    raise MemoryDreamError(f"artifact stale: {source} is newer than {artifact}; run `memory-dream build`")
 
 
 def extract_memory_links(text: str) -> list[Path]:
