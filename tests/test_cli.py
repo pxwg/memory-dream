@@ -38,7 +38,7 @@ class MemoryDreamCliTests(unittest.TestCase):
             install_fake_zk_lsp(bin_dir / "zk-lsp")
             env = {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
 
-            init = self.run_cli("--dream-root", str(dream_root), "init", cwd=project, env=env)
+            init = self.run_cli("init", "--dream-root", str(dream_root), cwd=project, env=env)
             self.assertEqual(init.returncode, 0, init.stderr)
             self.assertFalse((project / "Memory.md").exists())
             self.assertTrue((dream_root / "dream.toml").exists())
@@ -90,11 +90,11 @@ class MemoryDreamCliTests(unittest.TestCase):
 
             subdir = project / "subdir"
             subdir.mkdir()
-            where = self.run_cli("--dream-root", str(dream_root), "where", cwd=subdir, env=env)
+            where = self.run_cli("where", "--dream-root", str(dream_root), cwd=subdir, env=env)
             self.assertEqual(where.returncode, 0, where.stderr)
             self.assertIn("source:", where.stdout)
 
-            build = self.run_cli("--dream-root", str(dream_root), "build", cwd=subdir, env=env)
+            build = self.run_cli("build", "--dream-root", str(dream_root), cwd=subdir, env=env)
             self.assertEqual(build.returncode, 0, build.stderr)
             artifact = next((dream_root / "projects").iterdir()) / "artifact"
             memory = artifact / "Memory.md"
@@ -108,11 +108,11 @@ class MemoryDreamCliTests(unittest.TestCase):
             self.assertNotIn("))", card.read_text())
             self.assertIn("[Memory Dream @2605221059](2605221059-memory-dream.md)", related_card.read_text())
 
-            show = self.run_cli("--dream-root", str(dream_root), "show", cwd=project, env=env)
+            show = self.run_cli("show", "--dream-root", str(dream_root), cwd=project, env=env)
             self.assertEqual(show.returncode, 0, show.stderr)
             self.assertIn("# Project Memory", show.stdout)
 
-            check = self.run_cli("--dream-root", str(dream_root), "check", cwd=project, env=env)
+            check = self.run_cli("check", "--dream-root", str(dream_root), cwd=project, env=env)
             self.assertEqual(check.returncode, 0, check.stderr)
 
     def test_unregistered_project_reports_error(self) -> None:

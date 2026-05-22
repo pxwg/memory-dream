@@ -48,8 +48,31 @@ def main(argv: list[str] | None = None) -> int:
 
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="memory-dream")
-    parser.add_argument("--project-root", type=Path, help="Resolve or register this project instead of cwd.")
-    parser.add_argument("--dream-root", type=Path, help="Use a non-default management root.")
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
+        "--project-root",
+        type=Path,
+        default=argparse.SUPPRESS,
+        help="Resolve or register this project instead of cwd.",
+    )
+    common.add_argument(
+        "--dream-root",
+        type=Path,
+        default=argparse.SUPPRESS,
+        help="Use a non-default management root.",
+    )
+    parser.add_argument(
+        "--project-root",
+        type=Path,
+        default=argparse.SUPPRESS,
+        help="Resolve or register this project instead of cwd.",
+    )
+    parser.add_argument(
+        "--dream-root",
+        type=Path,
+        default=argparse.SUPPRESS,
+        help="Use a non-default management root.",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     for name, func, help_text in [
@@ -60,7 +83,7 @@ def make_parser() -> argparse.ArgumentParser:
         ("show", cmd_show, "print artifact/Memory.md"),
         ("check", cmd_check, "delegate graph checks to zk-lsp"),
     ]:
-        sub = subparsers.add_parser(name, help=help_text)
+        sub = subparsers.add_parser(name, parents=[common], help=help_text)
         sub.set_defaults(func=func)
 
     return parser
@@ -68,10 +91,11 @@ def make_parser() -> argparse.ArgumentParser:
 
 def cmd_init(args: argparse.Namespace) -> int:
     dream_root = resolve_dream_root(args)
-    project_root = resolve_project_root(args.project_root, dream_root, for_init=True)
+    project_arg = getattr(args, "project_root", None)
+    project_root = resolve_project_root(project_arg, dream_root, for_init=True)
     registry = load_registry(dream_root)
     existing = find_project_by_root(registry, project_root)
-    if existing is None and args.project_root is None and find_git_root(Path.cwd().resolve()) is None:
+    if existing is None and project_arg is None and find_git_root(Path.cwd().resolve()) is None:
         existing = find_project_containing_path(registry, Path.cwd().resolve())
     if existing:
         print_binding(existing)
@@ -142,7 +166,7 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 
 def resolve_dream_root(args: argparse.Namespace) -> Path:
-    return (args.dream_root or DEFAULT_DREAM_ROOT).expanduser().resolve()
+    return (getattr(args, "dream_root", None) or DEFAULT_DREAM_ROOT).expanduser().resolve()
 
 
 def resolve_project_root(project_root: Path | None, dream_root: Path, *, for_init: bool = False) -> Path:
@@ -331,10 +355,11 @@ def find_project_containing_path(projects: Iterable[Project], path: Path) -> Pro
 
 def require_project(args: argparse.Namespace) -> Project:
     dream_root = resolve_dream_root(args)
-    project_root = resolve_project_root(args.project_root, dream_root)
+    project_arg = getattr(args, "project_root", None)
+    project_root = resolve_project_root(project_arg, dream_root)
     registry = load_registry(dream_root)
     project = find_project_by_root(registry, project_root)
-    if project is None and args.project_root is None and find_git_root(Path.cwd().resolve()) is None:
+    if project is None and project_arg is None and find_git_root(Path.cwd().resolve()) is None:
         project = find_project_containing_path(registry, Path.cwd().resolve())
     if project is None:
         raise MemoryDreamError(f"unregistered project: {project_root}; run `memory-dream init`")
