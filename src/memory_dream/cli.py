@@ -427,8 +427,8 @@ def require_source_wiki(project: Project) -> None:
 
 def build_project(project: Project) -> None:
     require_source_wiki(project)
-    run_zk_lsp(["--wiki-root", str(project.source), "generate"], cwd=project.source)
-    with file_lock(project.source.parent / ".build.lock"):
+    with file_lock(project.source.parent / ".source.lock"):
+        run_zk_lsp(["--wiki-root", str(project.source), "generate"], cwd=project.source)
         build_artifacts(project)
 
 
@@ -792,7 +792,7 @@ def strip_typst_line_comment(line: str) -> str:
         if char == '"':
             in_double = not in_double
             continue
-        if not in_double and line.startswith("//", idx):
+        if not in_double and line.startswith("//", idx) and (idx == 0 or line[idx - 1].isspace()):
             return line[:idx].rstrip()
     return line
 

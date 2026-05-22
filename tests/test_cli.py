@@ -795,6 +795,7 @@ class MemoryDreamCliTests(unittest.TestCase):
                     [
                         "= Project Memory",
                         'URL "https://example.com//keep"',
+                        "Plain https://example.com//index",
                         "hello // @2605221500",
                     ]
                 ),
@@ -812,6 +813,7 @@ class MemoryDreamCliTests(unittest.TestCase):
 
             memory_text = (project_dir / "artifact" / "Memory.md").read_text(encoding="utf-8")
             self.assertIn('URL "https://example.com//keep"', memory_text)
+            self.assertIn("Plain https://example.com//index", memory_text)
             self.assertIn("hello", memory_text)
             self.assertNotIn("// @2605221500", memory_text)
             self.assertIn("[Inline Link @2605221500](memory/2605221500-inline-link.md)", memory_text)
