@@ -13,7 +13,7 @@ import tempfile
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable
 
@@ -91,12 +91,43 @@ def make_parser() -> argparse.ArgumentParser:
         ("init", cmd_init, "register the current project"),
         ("where", cmd_where, "print the current project binding"),
         ("open", cmd_open, "print the source wiki path"),
+        ("status", cmd_status, "print project memory status"),
+        ("list", cmd_list, "list source notes"),
+        ("new", cmd_new, "create a source note via zk-lsp"),
+        ("edit", cmd_edit, "print or open a source note path"),
+        ("link", cmd_link, "link a source note from index.typ"),
         ("build", cmd_build, "build Markdown artifacts"),
         ("context", cmd_context, "print AI-consumable project memory context"),
         ("show", cmd_show, "print artifact/Memory.md"),
         ("check", cmd_check, "delegate graph checks to zk-lsp"),
     ]:
         sub = subparsers.add_parser(name, parents=[common], help=help_text)
+        if name in {"status", "list"}:
+            sub.add_argument(
+                "--format",
+                choices=["text", "json"],
+                default="text",
+                help="Output format.",
+            )
+        if name == "new":
+            sub.add_argument("--title", required=True, help="Note title.")
+            sub.add_argument("--id", help="Custom 10-digit note ID.")
+            sub.add_argument(
+                "--kind",
+                required=True,
+                choices=["decision", "experience"],
+                help="Memory note kind.",
+            )
+            sub.add_argument("--content", default="", help="Initial note content.")
+            sub.add_argument("--link", action="store_true", help="Link the new note from index.typ.")
+            sub.add_argument("--build", action="store_true", help="Build artifacts after creating the note.")
+        if name == "edit":
+            sub.add_argument("id", help="10-digit note ID.")
+            sub.add_argument("--editor", action="store_true", help="Open the note with $EDITOR instead of printing the path.")
+        if name == "link":
+            sub.add_argument("id", help="10-digit note ID.")
+            sub.add_argument("--section", help="Reserved for section-aware linking; currently appends to index.typ.")
+            sub.add_argument("--build", action="store_true", help="Build artifacts after linking the note.")
         if name == "context":
             sub.add_argument(
                 "--all",
@@ -166,12 +197,100 @@ def cmd_open(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_build(args: argparse.Namespace) -> int:
+def cmd_status(args: argparse.Namespace) -> int:
+    project = require_project(args)
+    status = project_status(project)
+    if getattr(args, "format") == "json":
+        print(json.dumps(status, ensure_ascii=False, indent=2, sort_keys=True))
+    else:
+        print_status(status)
+    return 0
+
+
+def cmd_list(args: argparse.Namespace) -> int:
     project = require_project(args)
     require_source_wiki(project)
-    run_zk_lsp(["--wiki-root", str(project.source), "generate"], cwd=project.source)
-    with file_lock(project.source.parent / ".build.lock"):
-        build_artifacts(project)
+    notes = list_note_summaries(project)
+    if getattr(args, "format") == "json":
+        print(json.dumps(notes, ensure_ascii=False, indent=2, sort_keys=True))
+    else:
+        for note in notes:
+            print(f"{note['id']}  {note['title']}")
+    return 0
+
+
+def cmd_new(args: argparse.Namespace) -> int:
+    project = require_project(args)
+    require_source_wiki(project)
+    payload = {
+        "title": args.title,
+        "content": args.content,
+        "metadata": {
+            "keywords": [args.kind],
+            "relation": "active",
+        },
+    }
+    note_id = getattr(args, "id", None) or next_note_id(project)
+    validate_note_id(note_id)
+    if (project.source / "note" / f"{note_id}.typ").exists():
+        raise MemoryDreamError(f"note already exists: {note_id}")
+    output = run_zk_lsp_capture(
+        ["--wiki-root", str(project.source), "new", "--id", note_id, "--json"],
+        cwd=project.source,
+        input_text=json.dumps(payload, ensure_ascii=False),
+    )
+    note_path = Path(output.strip()).expanduser()
+    if not note_path.is_absolute():
+        note_path = (project.source / note_path).resolve()
+    note_id = note_path.stem
+    print(f"created: {note_id}")
+    print(f"source:  {note_path}")
+    if getattr(args, "link", False):
+        link_note(project, note_id)
+        print("linked:  true")
+    else:
+        print("linked:  false")
+    if getattr(args, "build", False):
+        build_project(project)
+        print(f"artifact: {project.artifact}")
+    else:
+        print("stale:   true")
+        print("next:    memory-dream build")
+    return 0
+
+
+def cmd_edit(args: argparse.Namespace) -> int:
+    project = require_project(args)
+    path = note_path_for_id(project, args.id)
+    if getattr(args, "editor", False):
+        editor = os.environ.get("EDITOR")
+        if not editor:
+            raise MemoryDreamError("$EDITOR is not set")
+        completed = subprocess.run([editor, str(path)], check=False)
+        return completed.returncode
+    print(path)
+    return 0
+
+
+def cmd_link(args: argparse.Namespace) -> int:
+    project = require_project(args)
+    if getattr(args, "section", None):
+        raise MemoryDreamError("--section is reserved but not implemented yet")
+    note = note_info_by_id(project, args.id)
+    link_note(project, note["id"])
+    print(f"linked: {note['id']}  {note['title']}")
+    if getattr(args, "build", False):
+        build_project(project)
+        print(f"artifact: {project.artifact}")
+    else:
+        print("stale:  true")
+        print("next:   memory-dream build")
+    return 0
+
+
+def cmd_build(args: argparse.Namespace) -> int:
+    project = require_project(args)
+    build_project(project)
     print(project.artifact)
     return 0
 
@@ -300,6 +419,13 @@ def require_source_wiki(project: Project) -> None:
         raise MemoryDreamError(f"source wiki missing expected files for {project.root}: {paths}")
 
 
+def build_project(project: Project) -> None:
+    require_source_wiki(project)
+    run_zk_lsp(["--wiki-root", str(project.source), "generate"], cwd=project.source)
+    with file_lock(project.source.parent / ".build.lock"):
+        build_artifacts(project)
+
+
 def remove_unregistered_project_dir(dream_root: Path, project: Project) -> None:
     projects_root = (dream_root / "projects").resolve()
     project_dir = project.source.parent.resolve()
@@ -323,6 +449,28 @@ def run_zk_lsp(args: list[str], *, cwd: Path, raise_on_failure: bool = True) -> 
     if raise_on_failure and completed.returncode != 0:
         raise MemoryDreamError(f"`zk-lsp {' '.join(args)}` failed in {cwd} with exit code {completed.returncode}")
     return completed.returncode
+
+
+def run_zk_lsp_capture(args: list[str], *, cwd: Path, input_text: str | None = None) -> str:
+    exe = shutil.which("zk-lsp")
+    if exe is None:
+        raise MemoryDreamError("missing `zk-lsp`; install it and ensure it is on PATH")
+    try:
+        completed = subprocess.run(
+            [exe, *args],
+            cwd=cwd,
+            input=input_text,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise MemoryDreamError(f"failed to run zk-lsp in {cwd}: {exc}") from exc
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip()
+        suffix = f": {detail}" if detail else ""
+        raise MemoryDreamError(f"`zk-lsp {' '.join(args)}` failed in {cwd} with exit code {completed.returncode}{suffix}")
+    return completed.stdout
 
 
 def load_registry(dream_root: Path) -> list[Project]:
@@ -509,6 +657,117 @@ def print_binding(project: Project) -> None:
     print(f"artifact: {project.artifact}")
 
 
+def project_status(project: Project) -> dict[str, object]:
+    source_ok = (project.source / "index.typ").exists() and (project.source / "note").is_dir()
+    memory_file = project.artifact / "Memory.md"
+    built = memory_file.exists()
+    notes = list_note_summaries(project) if source_ok else []
+    linked_ids = linked_note_ids(project) if (project.source / "index.typ").exists() else set()
+    note_ids = {str(note["id"]) for note in notes}
+    stale_reason = context_stale_reason(project) if built and source_ok else None
+    return {
+        "registered": True,
+        "built": built,
+        "stale": stale_reason is not None or (source_ok and not built),
+        "stale_reason": stale_reason,
+        "project": str(project.root),
+        "id": project.id,
+        "source": str(project.source),
+        "artifact": str(project.artifact),
+        "notes": len(notes),
+        "linked": len(note_ids & linked_ids),
+        "unlinked": len(note_ids - linked_ids),
+    }
+
+
+def print_status(status: Mapping[str, object]) -> None:
+    for key in [
+        "project",
+        "id",
+        "source",
+        "artifact",
+        "registered",
+        "built",
+        "stale",
+        "stale_reason",
+        "notes",
+        "linked",
+        "unlinked",
+    ]:
+        value = status.get(key)
+        if value is not None:
+            print(f"{key}: {value}")
+
+
+def list_note_summaries(project: Project) -> list[dict[str, str]]:
+    note_dir = project.source / "note"
+    if not note_dir.exists():
+        return []
+    notes: list[dict[str, str]] = []
+    for path in sorted(note_dir.glob("*.typ")):
+        note_id = path.stem
+        validate_note_id(note_id)
+        notes.append(note_info_by_id(project, note_id))
+    return notes
+
+
+def linked_note_ids(project: Project) -> set[str]:
+    index_path = project.source / "index.typ"
+    if not index_path.exists():
+        return set()
+    return set(re.findall(r"@(\d{10})", index_path.read_text(encoding="utf-8")))
+
+
+def note_info_by_id(project: Project, note_id: str) -> dict[str, str]:
+    validate_note_id(note_id)
+    fallback = parse_note_info(note_path_for_id(project, note_id))
+    try:
+        raw = run_zk_lsp_capture(["--wiki-root", str(project.source), "note-info", note_id], cwd=project.source)
+        data = json.loads(raw)
+    except (MemoryDreamError, json.JSONDecodeError):
+        return fallback
+    return {
+        "id": str(data.get("id") or fallback["id"]),
+        "title": str(data.get("title") or fallback["title"]),
+        "path": str(Path(str(data.get("path") or fallback["path"])).expanduser().resolve()),
+    }
+
+
+def note_path_for_id(project: Project, note_id: str) -> Path:
+    validate_note_id(note_id)
+    path = project.source / "note" / f"{note_id}.typ"
+    if not path.exists():
+        raise MemoryDreamError(f"note not found: {note_id}")
+    return path
+
+
+def validate_note_id(note_id: str) -> None:
+    if not re.fullmatch(r"\d{10}", note_id):
+        raise MemoryDreamError(f"invalid note id: {note_id}")
+
+
+def next_note_id(project: Project) -> str:
+    existing = {path.stem for path in (project.source / "note").glob("*.typ")}
+    candidate = datetime.now().replace(second=0, microsecond=0)
+    for _ in range(1440):
+        note_id = candidate.strftime("%y%m%d%H%M")
+        if note_id not in existing:
+            return note_id
+        candidate += timedelta(minutes=1)
+    raise MemoryDreamError("could not allocate an unused note id")
+
+
+def link_note(project: Project, note_id: str) -> None:
+    validate_note_id(note_id)
+    note_path_for_id(project, note_id)
+    index_path = project.source / "index.typ"
+    text = index_path.read_text(encoding="utf-8")
+    if re.search(rf"@{re.escape(note_id)}(?!\d)", text):
+        return
+    suffix = "" if text.endswith("\n") else "\n"
+    index_path.write_text(f"{text}{suffix}- @{note_id}\n", encoding="utf-8")
+
+
 def build_artifacts(project: Project) -> None:
     index_path = project.source / "index.typ"
     note_dir = project.source / "note"
@@ -623,11 +882,22 @@ def render_context(project: Project, *, include_all: bool, max_notes: int) -> st
 
 
 def ensure_context_artifacts_current(project: Project) -> None:
-    require_source_wiki(project)
+    reason = context_stale_reason(project)
+    if reason is not None:
+        raise MemoryDreamError(reason)
+
+
+def context_stale_reason(project: Project) -> str | None:
+    try:
+        require_source_wiki(project)
+    except MemoryDreamError as exc:
+        return str(exc)
     memory_file = project.artifact / "Memory.md"
+    if not memory_file.exists():
+        return f"artifact missing: {memory_file}; run `memory-dream build`"
     index_path = project.source / "index.typ"
     if source_newer_than_artifact(index_path, memory_file):
-        raise_stale_context(index_path, memory_file)
+        return stale_context_message(index_path, memory_file)
 
     expected_artifacts: set[str] = set()
     for note_path in sorted((project.source / "note").glob("*.typ")):
@@ -635,24 +905,25 @@ def ensure_context_artifacts_current(project: Project) -> None:
         artifact = project.artifact / "memory" / artifact_name(info["id"], info["title"])
         expected_artifacts.add(artifact.name)
         if not artifact.exists():
-            raise MemoryDreamError(f"artifact stale: missing {artifact}; run `memory-dream build`")
+            return f"artifact stale: missing {artifact}; run `memory-dream build`"
         if source_newer_than_artifact(note_path, artifact):
-            raise_stale_context(note_path, artifact)
+            return stale_context_message(note_path, artifact)
 
     artifact_dir = project.artifact / "memory"
     if artifact_dir.exists():
         orphaned = sorted(path for path in artifact_dir.glob("*.md") if path.name not in expected_artifacts)
         if orphaned:
             paths = ", ".join(str(path) for path in orphaned)
-            raise MemoryDreamError(f"artifact stale: orphaned note artifact(s): {paths}; run `memory-dream build`")
+            return f"artifact stale: orphaned note artifact(s): {paths}; run `memory-dream build`"
+    return None
 
 
 def source_newer_than_artifact(source: Path, artifact: Path) -> bool:
     return source.stat().st_mtime_ns > artifact.stat().st_mtime_ns
 
 
-def raise_stale_context(source: Path, artifact: Path) -> None:
-    raise MemoryDreamError(f"artifact stale: {source} is newer than {artifact}; run `memory-dream build`")
+def stale_context_message(source: Path, artifact: Path) -> str:
+    return f"artifact stale: {source} is newer than {artifact}; run `memory-dream build`"
 
 
 def extract_memory_links(text: str) -> list[Path]:
@@ -720,7 +991,7 @@ def swap_artifact_dir(project: Project, staging: Path) -> None:
 
 def parse_note_info(path: Path) -> dict[str, str]:
     text = path.read_text(encoding="utf-8")
-    match = re.search(r"^=\s+(.+?)\s+<(\d{10})>\s*$", text, flags=re.MULTILINE)
+    match = re.search(r"^=\s*(.*?)\s+<(\d{10})>\s*$", text, flags=re.MULTILINE)
     if not match:
         raise MemoryDreamError(f"invalid note header: {path}")
     return {"title": match.group(1).strip(), "id": match.group(2), "path": str(path)}

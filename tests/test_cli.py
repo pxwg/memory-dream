@@ -7,6 +7,7 @@ import tempfile
 import tomllib
 import unittest
 import hashlib
+import json
 from pathlib import Path
 
 
@@ -649,10 +650,100 @@ class MemoryDreamCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertIn("project root does not exist", result.stderr)
 
+    def test_status_list_new_edit_and_link_delegate_note_creation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project"
+            project.mkdir()
+            dream_root = base / "dream"
+            bin_dir = base / "bin"
+            bin_dir.mkdir()
+            install_fake_zk_lsp(bin_dir / "zk-lsp")
+            env = {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+            init = self.run_cli("init", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(init.returncode, 0, init.stderr)
+
+            status = self.run_cli("status", "--dream-root", str(dream_root), "--format", "json", cwd=project, env=env)
+            self.assertEqual(status.returncode, 0, status.stderr)
+            parsed_status = json.loads(status.stdout)
+            self.assertTrue(parsed_status["registered"])
+            self.assertFalse(parsed_status["built"])
+            self.assertTrue(parsed_status["stale"])
+
+            new = self.run_cli(
+                "new",
+                "--dream-root",
+                str(dream_root),
+                "--title",
+                "Prefer Explicit Build",
+                "--id",
+                "2605221300",
+                "--kind",
+                "decision",
+                "--content",
+                "Build only when requested.",
+                cwd=project,
+                env=env,
+            )
+            self.assertEqual(new.returncode, 0, new.stderr)
+            self.assertIn("created: 2605221300", new.stdout)
+            project_dir = next((dream_root / "projects").iterdir())
+            source = project_dir / "source"
+            note_path = source / "note" / "2605221300.typ"
+            self.assertTrue(note_path.exists())
+            note_text = note_path.read_text(encoding="utf-8")
+            self.assertIn('keywords = ["decision"]', note_text)
+            self.assertIn('relation = "active"', note_text)
+            self.assertIn("Build only when requested.", note_text)
+
+            duplicate = self.run_cli(
+                "new",
+                "--dream-root",
+                str(dream_root),
+                "--title",
+                "Duplicate",
+                "--id",
+                "2605221300",
+                "--kind",
+                "experience",
+                cwd=project,
+                env=env,
+            )
+            self.assertEqual(duplicate.returncode, 1)
+            self.assertIn("note already exists", duplicate.stderr)
+
+            listed = self.run_cli("list", "--dream-root", str(dream_root), "--format", "json", cwd=project, env=env)
+            self.assertEqual(listed.returncode, 0, listed.stderr)
+            self.assertEqual(json.loads(listed.stdout)[0]["title"], "Prefer Explicit Build")
+
+            edit = self.run_cli("edit", "--dream-root", str(dream_root), "2605221300", cwd=project, env=env)
+            self.assertEqual(edit.returncode, 0, edit.stderr)
+            self.assertEqual(Path(edit.stdout.strip()), note_path.resolve())
+
+            link = self.run_cli("link", "--dream-root", str(dream_root), "2605221300", "--build", cwd=project, env=env)
+            self.assertEqual(link.returncode, 0, link.stderr)
+            self.assertIn("- @2605221300", (source / "index.typ").read_text(encoding="utf-8"))
+            self.assertIn("artifact:", link.stdout)
+
+            relink = self.run_cli("link", "--dream-root", str(dream_root), "2605221300", cwd=project, env=env)
+            self.assertEqual(relink.returncode, 0, relink.stderr)
+            self.assertEqual((source / "index.typ").read_text(encoding="utf-8").count("@2605221300"), 1)
+
+            final_status = self.run_cli("status", "--dream-root", str(dream_root), "--format", "json", cwd=project, env=env)
+            self.assertEqual(final_status.returncode, 0, final_status.stderr)
+            final_parsed = json.loads(final_status.stdout)
+            self.assertTrue(final_parsed["built"])
+            self.assertFalse(final_parsed["stale"])
+            self.assertEqual(final_parsed["notes"], 1)
+            self.assertEqual(final_parsed["linked"], 1)
+            self.assertEqual(final_parsed["unlinked"], 0)
+
 
 def install_fake_zk_lsp(path: Path, *, check_exit: int = 0, init_exit: int = 0, write_partial: bool = False) -> None:
     path.write_text(
         """#!/usr/bin/env python3
+import json
 import pathlib
 import sys
 
@@ -670,6 +761,44 @@ if len(args) >= 3 and args[0] == "--wiki-root":
     command = args[2]
     if command == "generate":
         pathlib.Path(args[1], "link.typ").write_text("", encoding="utf-8")
+        raise SystemExit(0)
+    if command == "new" and "--json" in args:
+        root = pathlib.Path(args[1])
+        payload = json.loads(sys.stdin.read() or "{}")
+        metadata = payload.get("metadata", {})
+        title = payload.get("title", "Untitled")
+        content = payload.get("content", "")
+        note_id = args[args.index("--id") + 1] if "--id" in args else "2605221300"
+        note = root / "note" / f"{note_id}.typ"
+        meta_lines = [f"{key} = {json.dumps(value)}" for key, value in sorted(metadata.items())]
+        note.write_text(
+            "\\n".join(
+                [
+                    "#let zk-metadata = toml(bytes(",
+                    "  ```toml",
+                    *[f"  {line}" for line in meta_lines],
+                    "  ```",
+                    "))",
+                    "",
+                    f"= {title} <{note_id}>",
+                    content,
+                ]
+            ),
+            encoding="utf-8",
+        )
+        print(note)
+        raise SystemExit(0)
+    if command == "note-info" and len(args) >= 4:
+        root = pathlib.Path(args[1])
+        note_id = args[3]
+        note = root / "note" / f"{note_id}.typ"
+        content = note.read_text(encoding="utf-8")
+        title = ""
+        for line in content.splitlines():
+            if line.startswith("=") and f"<{note_id}>" in line:
+                title = line.split("=", 1)[1].split(f"<{note_id}>", 1)[0].strip()
+                break
+        print(json.dumps({"id": note_id, "title": title, "path": str(note), "metadata": {}, "content": content}))
         raise SystemExit(0)
     if command == "check":
         raise SystemExit(CHECK_EXIT)

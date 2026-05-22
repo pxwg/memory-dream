@@ -270,6 +270,11 @@ First-version commands:
 memory-dream init
 memory-dream where
 memory-dream open
+memory-dream status
+memory-dream list
+memory-dream new
+memory-dream edit
+memory-dream link
 memory-dream build
 memory-dream context
 memory-dream show
@@ -321,6 +326,85 @@ Opens or prints the source wiki path. First version may print the path only.
 
 If `$EDITOR` support is added in version 1, it should be opt-in through a flag
 such as `--editor`; the default output should remain script-friendly.
+
+### `status`
+
+Prints project memory state for humans or agents.
+
+Options:
+
+```text
+--format text|json
+```
+
+Status includes whether artifacts have been built, whether they are stale,
+source/artifact paths, note count, linked note count, and unlinked note count.
+
+### `list`
+
+Prints source note IDs and titles.
+
+Options:
+
+```text
+--format text|json
+```
+
+`list` resolves note IDs from `source/note/*.typ` and should prefer
+`zk-lsp note-info <id>` for metadata. It may fall back to parsing the
+constrained note heading form if `note-info` is unavailable.
+
+### `new`
+
+Creates a source note by delegating note creation to zk-lsp:
+
+```text
+zk-lsp --wiki-root <source> new --json
+```
+
+Options:
+
+```text
+--title <title>
+--id <id>
+--kind decision|experience
+--content <text>
+--link
+--build
+```
+
+`--link` adds the created note to the project entry point. `--build` explicitly
+builds artifacts after creation and optional linking.
+
+`--kind` maps to zk-lsp-supported metadata as a keyword, for example
+`keywords = ["decision"]`; memory-dream should not invent metadata fields that
+zk-lsp rejects.
+
+If `--id` is omitted, memory-dream allocates the next unused timestamp-like note
+ID and passes it to `zk-lsp new --id`, avoiding same-minute collisions with
+notes created by `zk-lsp init` or earlier `new` calls.
+
+### `edit`
+
+Prints the source path for an existing note ID:
+
+```text
+memory-dream edit <id>
+```
+
+With `--editor`, opens the note with `$EDITOR`. The default remains
+script-friendly and only prints the path.
+
+### `link`
+
+Links an existing note from `index.typ` so it can enter generated `Memory.md`.
+
+```text
+memory-dream link <id>
+```
+
+If the ID is already referenced, `link` is idempotent. `--build` explicitly
+builds artifacts after linking.
 
 ### `build`
 
@@ -400,14 +484,13 @@ Version 1 does not include:
 - Query APIs beyond `context` and `show`.
 - Bidirectional sync from Markdown artifact back to Typst source.
 - Writing generated memory files into the real project root.
-- Reimplementing zk-lsp note CRUD or graph semantics.
+- Reimplementing zk-lsp graph semantics.
 - Modifying `zk-lsp export`.
 
 ## Future Extensions
 
 Likely follow-up features:
 
-- `memory-dream new` wrapping `zk-lsp new`.
 - `memory-dream dream` for agent-assisted project memory synthesis.
 - `memory-dream query` using artifact text, backlinks, and optional cache.
 - Optional mirror of artifacts into a project directory.
