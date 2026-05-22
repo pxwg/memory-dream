@@ -230,19 +230,25 @@ def cmd_new(args: argparse.Namespace) -> int:
             "relation": "active",
         },
     }
-    note_id = getattr(args, "id", None) or next_note_id(project)
-    validate_note_id(note_id)
-    if (project.source / "note" / f"{note_id}.typ").exists():
-        raise MemoryDreamError(f"note already exists: {note_id}")
-    output = run_zk_lsp_capture(
-        ["--wiki-root", str(project.source), "new", "--id", note_id, "--json"],
-        cwd=project.source,
-        input_text=json.dumps(payload, ensure_ascii=False),
-    )
-    note_path = Path(output.strip()).expanduser()
-    if not note_path.is_absolute():
-        note_path = (project.source / note_path).resolve()
-    note_id = note_path.stem
+    with file_lock(project.source.parent / ".source.lock"):
+        note_id = getattr(args, "id", None) or next_note_id(project)
+        validate_note_id(note_id)
+        expected_path = project.source / "note" / f"{note_id}.typ"
+        if expected_path.exists():
+            raise MemoryDreamError(f"note already exists: {note_id}")
+        output = run_zk_lsp_capture(
+            ["--wiki-root", str(project.source), "new", "--id", note_id, "--json"],
+            cwd=project.source,
+            input_text=json.dumps(payload, ensure_ascii=False),
+        )
+        note_path = Path(output.strip()).expanduser()
+        if not note_path.is_absolute():
+            note_path = (project.source / note_path).resolve()
+        if note_path.resolve() != expected_path.resolve():
+            raise MemoryDreamError(f"zk-lsp created unexpected note path: {note_path}")
+        if not expected_path.exists():
+            raise MemoryDreamError(f"zk-lsp did not create expected note: {expected_path}")
+        note_id = note_path.stem
     print(f"created: {note_id}")
     print(f"source:  {note_path}")
     if getattr(args, "link", False):
@@ -715,7 +721,7 @@ def linked_note_ids(project: Project) -> set[str]:
     index_path = project.source / "index.typ"
     if not index_path.exists():
         return set()
-    return set(re.findall(r"@(\d{10})", uncommented_typst_text(index_path.read_text(encoding="utf-8"))))
+    return set(re.findall(r"@(\d{10})", strip_typst_comments(index_path.read_text(encoding="utf-8"))))
 
 
 def note_info_by_id(project: Project, note_id: str) -> dict[str, str]:
@@ -763,14 +769,32 @@ def link_note(project: Project, note_id: str) -> None:
     index_path = project.source / "index.typ"
     with file_lock(project.source.parent / ".index.lock"):
         text = index_path.read_text(encoding="utf-8")
-        if re.search(rf"@{re.escape(note_id)}(?!\d)", uncommented_typst_text(text)):
+        if re.search(rf"@{re.escape(note_id)}(?!\d)", strip_typst_comments(text)):
             return
         suffix = "" if text.endswith("\n") else "\n"
         atomic_write_text(index_path, f"{text}{suffix}- @{note_id}\n")
 
 
-def uncommented_typst_text(text: str) -> str:
-    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("//"))
+def strip_typst_comments(text: str) -> str:
+    return "\n".join(strip_typst_line_comment(line) for line in text.splitlines())
+
+
+def strip_typst_line_comment(line: str) -> str:
+    in_double = False
+    escaped = False
+    for idx, char in enumerate(line):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\" and in_double:
+            escaped = True
+            continue
+        if char == '"':
+            in_double = not in_double
+            continue
+        if not in_double and line.startswith("//", idx):
+            return line[:idx].rstrip()
+    return line
 
 
 def atomic_write_text(path: Path, text: str) -> None:
@@ -1111,6 +1135,9 @@ def extract_tags_and_body(lines: list[str]) -> tuple[list[str], list[str]]:
         if stripped.startswith("#status_tag("):
             continue
         if stripped.startswith("//"):
+            continue
+        line = strip_typst_line_comment(line)
+        if not line.strip():
             continue
         tag_matches = re.findall(r"#tag\.([A-Za-z0-9_-]+)", line)
         if tag_matches and stripped.replace(" ", "") == "".join(f"#tag.{tag}" for tag in tag_matches):
