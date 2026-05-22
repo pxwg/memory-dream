@@ -71,7 +71,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     project_root = resolve_project_root(args.project_root, dream_root, for_init=True)
     registry = load_registry(dream_root)
     existing = find_project_by_root(registry, project_root)
-    if existing is None and args.project_root is None:
+    if existing is None and args.project_root is None and find_git_root(Path.cwd().resolve()) is None:
         existing = find_project_containing_path(registry, Path.cwd().resolve())
     if existing:
         print_binding(existing)
@@ -334,7 +334,7 @@ def require_project(args: argparse.Namespace) -> Project:
     project_root = resolve_project_root(args.project_root, dream_root)
     registry = load_registry(dream_root)
     project = find_project_by_root(registry, project_root)
-    if project is None and args.project_root is None:
+    if project is None and args.project_root is None and find_git_root(Path.cwd().resolve()) is None:
         project = find_project_containing_path(registry, Path.cwd().resolve())
     if project is None:
         raise MemoryDreamError(f"unregistered project: {project_root}; run `memory-dream init`")
@@ -445,6 +445,7 @@ def extract_metadata(text: str) -> tuple[str, str]:
     start = None
     fence = None
     end = None
+    expression_end = None
     for idx, line in enumerate(lines):
         stripped = line.strip()
         if start is None and stripped.startswith("#let zk-metadata") and "toml(bytes(" in stripped:
@@ -458,8 +459,16 @@ def extract_metadata(text: str) -> tuple[str, str]:
             break
     if start is None or fence is None or end is None:
         return "", "\n".join(lines)
+    for idx in range(end + 1, len(lines)):
+        stripped = lines[idx].strip()
+        if stripped.startswith("#show:"):
+            break
+        expression_end = idx
+        if "))" in stripped:
+            break
     metadata = "\n".join(lines[fence + 1 : end])
-    body_lines = lines[:start] + lines[end + 1 :]
+    drop_end = expression_end if expression_end is not None else end
+    body_lines = lines[:start] + lines[drop_end + 1 :]
     return metadata, "\n".join(body_lines)
 
 

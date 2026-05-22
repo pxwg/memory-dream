@@ -105,6 +105,7 @@ class MemoryDreamCliTests(unittest.TestCase):
             self.assertTrue(related_card.exists())
             self.assertIn("[Memory Dream @2605221059](memory/2605221059-memory-dream.md)", memory.read_text())
             self.assertIn("tags = [\"idea\"]", card.read_text())
+            self.assertNotIn("))", card.read_text())
             self.assertIn("[Memory Dream @2605221059](2605221059-memory-dream.md)", related_card.read_text())
 
             show = self.run_cli("--dream-root", str(dream_root), "show", cwd=project, env=env)
@@ -183,6 +184,34 @@ class MemoryDreamCliTests(unittest.TestCase):
             self.assertEqual(registry.count("[[project]]"), 1)
             self.assertIn('name = "project"', registry)
             self.assertNotIn('name = "nested"', registry)
+
+    def test_nested_git_repo_does_not_fall_back_to_parent_registration(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            parent = base / "parent"
+            nested = parent / "nested"
+            nested.mkdir(parents=True)
+            (parent / ".git").mkdir()
+            (nested / ".git").mkdir()
+            dream_root = base / "dream"
+            bin_dir = base / "bin"
+            bin_dir.mkdir()
+            install_fake_zk_lsp(bin_dir / "zk-lsp")
+            env = {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+            parent_init = self.run_cli("--dream-root", str(dream_root), "init", cwd=parent, env=env)
+            self.assertEqual(parent_init.returncode, 0, parent_init.stderr)
+
+            nested_where = self.run_cli("--dream-root", str(dream_root), "where", cwd=nested, env=env)
+            self.assertEqual(nested_where.returncode, 1)
+            self.assertIn("unregistered project", nested_where.stderr)
+
+            nested_init = self.run_cli("--dream-root", str(dream_root), "init", cwd=nested, env=env)
+            self.assertEqual(nested_init.returncode, 0, nested_init.stderr)
+            registry = (dream_root / "dream.toml").read_text(encoding="utf-8")
+            self.assertEqual(registry.count("[[project]]"), 2)
+            self.assertIn('name = "parent"', registry)
+            self.assertIn('name = "nested"', registry)
 
     def test_build_rejects_unmanaged_artifact_path_without_deleting_it(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
