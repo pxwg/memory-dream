@@ -106,10 +106,10 @@ version = 1
 [[project]]
 id = "memory-dream-8f3a2c"
 name = "memory-dream"
-root = "/Users/pxwg-dogggie/memory-dream"
-source = "/Users/pxwg-dogggie/.memory-dream/projects/memory-dream-8f3a2c/source"
-artifact = "/Users/pxwg-dogggie/.memory-dream/projects/memory-dream-8f3a2c/artifact"
-cache = "/Users/pxwg-dogggie/.memory-dream/projects/memory-dream-8f3a2c/cache"
+root = "/path/to/memory-dream"
+source = "/home/alice/.memory-dream/projects/memory-dream-8f3a2c/source"
+artifact = "/home/alice/.memory-dream/projects/memory-dream-8f3a2c/artifact"
+cache = "/home/alice/.memory-dream/projects/memory-dream-8f3a2c/cache"
 created_at = "2026-05-22T10:59:00+08:00"
 updated_at = "2026-05-22T10:59:00+08:00"
 ```

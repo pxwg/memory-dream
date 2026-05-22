@@ -2,8 +2,19 @@
 name = "memory-dream"
 version = "0.1.0"
 description = "Project memory harness backed by isolated zk-lsp wikis"
-readme = "docs/spec.md"
+readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Memory Dream contributors" }]
+keywords = ["memory", "zettelkasten", "typst", "zk-lsp", "agents"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Utilities",
+]
 dependencies = []
 
 [project.scripts]
