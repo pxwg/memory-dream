@@ -1,0 +1,4 @@
+interface:
+  display_name: "Memory Dream Curator"
+  short_description: "Summarize and curate project memory."
+  default_prompt: "Use Memory Dream Curator to consolidate project notes, link durable memories into Memory.md, rebuild artifacts, and verify the resulting context."

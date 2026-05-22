@@ -461,6 +461,29 @@ Memory Dream may add registry and artifact checks later.
 
 Exit status should match the delegated `zk-lsp check` result.
 
+## Codex Skills
+
+The repository distributes Codex skills under `skills/`:
+
+```text
+skills/memory-dream-coding
+skills/memory-dream-curator
+```
+
+Install them into a Codex skills directory with:
+
+```bash
+mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
+rsync -a skills/memory-dream-coding "${CODEX_HOME:-$HOME/.codex}/skills/"
+rsync -a skills/memory-dream-curator "${CODEX_HOME:-$HOME/.codex}/skills/"
+```
+
+`memory-dream-coding` is for normal coding sessions: load project context,
+keep artifacts current, and record lightweight decision or experience notes.
+
+`memory-dream-curator` is for periodic consolidation: review notes, link
+durable memories into `Memory.md`, rebuild artifacts, and verify `context`.
+
 ## Error Handling
 
 Commands should distinguish these common failures:
