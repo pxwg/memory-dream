@@ -256,6 +256,55 @@ class MemoryDreamCliTests(unittest.TestCase):
             self.assertIn("invalid registry", result.stderr)
             self.assertTrue(sentinel.exists())
 
+    def test_build_rejects_duplicate_note_ids_before_cleaning_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project"
+            project.mkdir()
+            dream_root = base / "dream"
+            bin_dir = base / "bin"
+            bin_dir.mkdir()
+            install_fake_zk_lsp(bin_dir / "zk-lsp")
+            env = {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+            init = self.run_cli("init", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(init.returncode, 0, init.stderr)
+            project_dir = next((dream_root / "projects").iterdir())
+            source = project_dir / "source"
+            artifact = project_dir / "artifact"
+            sentinel = artifact / "keep.txt"
+            sentinel.write_text("keep", encoding="utf-8")
+            (source / "note" / "2605221059.typ").write_text("= First <2605221059>\n", encoding="utf-8")
+            (source / "note" / "2605221100.typ").write_text("= Second <2605221059>\n", encoding="utf-8")
+
+            build = self.run_cli("build", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(build.returncode, 1)
+            self.assertIn("note filename does not match header id", build.stderr)
+            self.assertTrue(sentinel.exists())
+
+    def test_bad_registry_project_entry_reports_user_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project"
+            project.mkdir()
+            dream_root = base / "dream"
+            dream_root.mkdir()
+            (dream_root / "dream.toml").write_text("version = 1\nproject = [1]\n", encoding="utf-8")
+
+            result = self.run_cli("where", "--dream-root", str(dream_root), cwd=project)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("project entries must be tables", result.stderr)
+
+    def test_init_rejects_missing_project_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            missing = base / "missing"
+            dream_root = base / "dream"
+
+            result = self.run_cli("init", "--dream-root", str(dream_root), "--project-root", str(missing), cwd=base)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("project root does not exist", result.stderr)
+
 
 def install_fake_zk_lsp(path: Path, *, check_exit: int = 0) -> None:
     path.write_text(

@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -93,6 +96,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     dream_root = resolve_dream_root(args)
     project_arg = getattr(args, "project_root", None)
     project_root = resolve_project_root(project_arg, dream_root, for_init=True)
+    validate_project_root(project_root)
     registry = load_registry(dream_root)
     existing = find_project_by_root(registry, project_root)
     if existing is None and project_arg is None and find_git_root(Path.cwd().resolve()) is None:
@@ -171,7 +175,9 @@ def resolve_dream_root(args: argparse.Namespace) -> Path:
 
 def resolve_project_root(project_root: Path | None, dream_root: Path, *, for_init: bool = False) -> Path:
     if project_root is not None:
-        return project_root.expanduser().resolve()
+        resolved = project_root.expanduser().resolve()
+        validate_project_root(resolved)
+        return resolved
 
     cwd = Path.cwd().resolve()
     git_root = find_git_root(cwd)
@@ -185,6 +191,13 @@ def resolve_project_root(project_root: Path | None, dream_root: Path, *, for_ini
             return ancestor.root
 
     return cwd
+
+
+def validate_project_root(project_root: Path) -> None:
+    if not project_root.exists():
+        raise MemoryDreamError(f"project root does not exist: {project_root}")
+    if not project_root.is_dir():
+        raise MemoryDreamError(f"project root is not a directory: {project_root}")
 
 
 def find_git_root(start: Path) -> Path | None:
@@ -250,7 +263,10 @@ def load_registry(dream_root: Path) -> list[Project]:
     if not path.exists():
         return []
     try:
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
+        raw = path.read_text(encoding="utf-8")
+        data = tomllib.loads(raw)
+    except (OSError, UnicodeDecodeError) as exc:
+        raise MemoryDreamError(f"invalid or unreadable registry {path}: {exc}") from exc
     except tomllib.TOMLDecodeError as exc:
         raise MemoryDreamError(f"invalid registry {path}: {exc}") from exc
     if data.get("version") != 1:
@@ -263,6 +279,8 @@ def load_registry(dream_root: Path) -> list[Project]:
     seen_ids: set[str] = set()
     seen_roots: set[Path] = set()
     for item in projects:
+        if not isinstance(item, Mapping):
+            raise MemoryDreamError(f"invalid registry {path}: project entries must be tables")
         try:
             project = Project(
                 id=str(item["id"]),
@@ -326,7 +344,31 @@ def write_registry(dream_root: Path, projects: list[Project]) -> None:
                 "",
             ]
         )
-    path.write_text("\n".join(lines), encoding="utf-8")
+    data = "\n".join(lines)
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=dream_root, prefix=".dream.", suffix=".tmp", delete=False) as file:
+        tmp_path = Path(file.name)
+        file.write(data)
+        file.flush()
+        os.fsync(file.fileno())
+    try:
+        tmp_path.replace(path)
+        fsync_directory(dream_root)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
+def fsync_directory(path: Path) -> None:
+    if not hasattr(os, "O_DIRECTORY"):
+        return
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def toml_escape(value: str) -> str:
@@ -378,6 +420,7 @@ def build_artifacts(project: Project) -> None:
     note_dir = project.source / "note"
     notes = sorted(note_dir.glob("*.typ"))
     note_infos = [parse_note_info(path) for path in notes]
+    validate_note_infos(note_infos)
     link_map = {
         info["id"]: {
             "title": info["title"],
@@ -437,7 +480,24 @@ def parse_note_info(path: Path) -> dict[str, str]:
     match = re.search(r"^=\s+(.+?)\s+<(\d{10})>\s*$", text, flags=re.MULTILINE)
     if not match:
         raise MemoryDreamError(f"invalid note header: {path}")
-    return {"title": match.group(1).strip(), "id": match.group(2)}
+    return {"title": match.group(1).strip(), "id": match.group(2), "path": str(path)}
+
+
+def validate_note_infos(note_infos: list[dict[str, str]]) -> None:
+    seen_ids: dict[str, str] = {}
+    seen_artifacts: dict[str, str] = {}
+    for info in note_infos:
+        note_id = info["id"]
+        path = Path(info["path"])
+        if path.stem != note_id:
+            raise MemoryDreamError(f"note filename does not match header id: {path} declares <{note_id}>")
+        if note_id in seen_ids:
+            raise MemoryDreamError(f"duplicate note id {note_id}: {seen_ids[note_id]} and {path}")
+        artifact = artifact_name(note_id, info["title"])
+        if artifact in seen_artifacts:
+            raise MemoryDreamError(f"duplicate artifact filename {artifact}: {seen_artifacts[artifact]} and {path}")
+        seen_ids[note_id] = str(path)
+        seen_artifacts[artifact] = str(path)
 
 
 def artifact_name(note_id: str, title: str) -> str:
