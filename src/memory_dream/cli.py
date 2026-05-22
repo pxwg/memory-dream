@@ -767,7 +767,7 @@ def link_note(project: Project, note_id: str) -> None:
     validate_note_id(note_id)
     note_path_for_id(project, note_id)
     index_path = project.source / "index.typ"
-    with file_lock(project.source.parent / ".index.lock"):
+    with file_lock(project.source.parent / ".source.lock"):
         text = index_path.read_text(encoding="utf-8")
         if re.search(rf"@{re.escape(note_id)}(?!\d)", strip_typst_comments(text)):
             return
