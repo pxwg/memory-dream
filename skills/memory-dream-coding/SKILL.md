@@ -28,6 +28,8 @@ memory-dream edit <id>
 
 `memory-dream edit <id>` prints the source note path by default. Read or patch that source file only when the task requires direct note editing. Do not patch `artifact/Memory.md` or `artifact/memory/*.md`.
 
+Treat `Memory.md` as an agent bootloader: it should orient behavior and route to high-value entry cards, not become a long README or a dump of every note. Normal coding work should preserve that shape.
+
 ## Recording Lightweight Memory
 
 At the end of a task, write memory only when there is durable value:

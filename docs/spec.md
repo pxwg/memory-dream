@@ -154,6 +154,33 @@ must orient the agent before any note is opened. Curation should keep active
 notes reachable, resolve or retire orphan notes, and prefer semantic navigation
 over direct disclosure.
 
+`Memory.md` should act as an agent bootloader:
+
+```text
+Memory.md = agent bootloader
+memory/*.md = generated durable priors
+note/*.typ = semantic source graph
+zk-lsp = mutation interface
+curator = consolidation/refactoring process
+```
+
+The top of `index.typ` should include a short Operational Contract before the
+entry links. It should be imperative, compact, and focused on behavior:
+
+```typst
+== Operational Contract
+
+- Treat `note/*.typ` and `zk-lsp` as the formal source of truth.
+- Treat generated Markdown artifacts as read-only consumption output.
+- Prefer `zk-lsp` and `memory-dream` commands over ad-hoc file edits.
+- Follow linked memory entries before expanding into source notes.
+- Preserve semantic links, lifecycle metadata, and user-authored metadata.
+- Promote only durable project knowledge into memory.
+```
+
+The contract must stay short. Detailed rationale belongs in linked cards, not
+in the entry point.
+
 Memory Dream should not reimplement ZK CRUD. Future commands such as
 `memory-dream new` should wrap `zk-lsp --wiki-root <source> new`.
 

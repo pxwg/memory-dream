@@ -41,10 +41,34 @@ Use `memory-dream edit <id>` to locate source notes that need revision.
 
 `index.typ` compiles to `Memory.md`, so it must be more than a flat ID list. During curation, make sure the generated `Memory.md` has:
 
+- a compact Operational Contract near the top
 - a short project-level overview that orients a future coding agent before any note is opened
 - a small set of important entry links, not every note
 - section labels or short prose that explain why linked notes matter
 - lightweight links into major decision or experience clusters
+
+Use this model:
+
+```text
+Memory.md = agent bootloader
+memory/*.md = generated durable priors
+note/*.typ = semantic source graph
+zk-lsp = mutation interface
+curator = consolidation/refactoring process
+```
+
+The Operational Contract should be short imperative bullets. Prefer this shape:
+
+```typst
+== Operational Contract
+
+- Treat `note/*.typ` and `zk-lsp` as the formal source of truth.
+- Treat generated Markdown artifacts as read-only consumption output.
+- Prefer `zk-lsp` and `memory-dream` commands over ad-hoc file edits.
+- Follow linked memory entries before expanding into source notes.
+- Preserve semantic links, lifecycle metadata, and user-authored metadata.
+- Promote only durable project knowledge into memory.
+```
 
 Prefer semantic navigation over direct disclosure. The first context load should explain the project memory shape and expose only high-value entry cards; detailed notes should be reached through card-to-card links.
 
@@ -96,7 +120,7 @@ After curating:
 2. Confirm `built` is true and `stale` is false.
 3. Run `memory-dream check`.
 4. Run `memory-dream context`.
-5. Check that the default context contains a useful overview, the intended entry links, and no unnecessary note dump.
+5. Check that the default context contains an Operational Contract, a useful overview, the intended entry links, and no unnecessary note dump.
 
 If `context` is too large or noisy, unlinking is not currently a CLI operation. Use `memory-dream open` to locate the source wiki, edit `index.typ` only when necessary, then run `memory-dream build`.
 
