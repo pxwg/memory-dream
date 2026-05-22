@@ -120,10 +120,11 @@ belongs in source notes and card-to-card semantic links.
 
 ## Codex Skills
 
-This repository includes two Codex skills:
+This repository includes three Codex skills:
 
 ```text
 skills/memory-dream-project
+skills/memory-dream-reader
 skills/memory-dream-curator
 ```
 
@@ -132,12 +133,16 @@ Install them into a Codex skills directory:
 ```bash
 mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
 rsync -a skills/memory-dream-project "${CODEX_HOME:-$HOME/.codex}/skills/"
+rsync -a skills/memory-dream-reader "${CODEX_HOME:-$HOME/.codex}/skills/"
 rsync -a skills/memory-dream-curator "${CODEX_HOME:-$HOME/.codex}/skills/"
 ```
 
 `memory-dream-project` is for normal project sessions of any kind. It loads
 project memory, keeps artifacts current, and records lightweight decisions,
 experiences, user operations, or preferences.
+
+`memory-dream-reader` is for read-only memory queries. It follows relevant
+links and returns a compact task-specific memory bundle without editing memory.
 
 `memory-dream-curator` is for periodic consolidation. It maintains the
 `Memory.md` entry point, links durable entry memories, resolves or retires

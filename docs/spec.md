@@ -513,6 +513,7 @@ The repository distributes Codex skills under `skills/`:
 
 ```text
 skills/memory-dream-project
+skills/memory-dream-reader
 skills/memory-dream-curator
 ```
 
@@ -521,6 +522,7 @@ Install them into a Codex skills directory with:
 ```bash
 mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
 rsync -a skills/memory-dream-project "${CODEX_HOME:-$HOME/.codex}/skills/"
+rsync -a skills/memory-dream-reader "${CODEX_HOME:-$HOME/.codex}/skills/"
 rsync -a skills/memory-dream-curator "${CODEX_HOME:-$HOME/.codex}/skills/"
 ```
 
@@ -528,6 +530,10 @@ rsync -a skills/memory-dream-curator "${CODEX_HOME:-$HOME/.codex}/skills/"
 context, keep artifacts current, and record lightweight decisions, experiences,
 user operations, or preferences without routinely changing the project entry
 point.
+
+`memory-dream-reader` is for read-only memory queries: follow relevant entry
+and card links, build a compact task-specific memory bundle, and avoid memory
+mutation.
 
 `memory-dream-curator` is for periodic consolidation: review notes, link
 durable entry memories into `Memory.md`, maintain the entry overview, resolve

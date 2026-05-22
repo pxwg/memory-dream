@@ -1,0 +1,4 @@
+interface:
+  display_name: "Memory Dream Reader"
+  short_description: "Query project memory read-only."
+  default_prompt: "Use Memory Dream Reader to retrieve task-relevant project memory, follow linked notes as needed, and return a compact read-only memory bundle."
