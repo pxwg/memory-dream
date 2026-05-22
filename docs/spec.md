@@ -143,8 +143,16 @@ source/
     <id>.typ
 ```
 
-`index.typ` is the project memory entry point. Detailed decision and experience
-memories live as ZK cards under `note/`.
+`index.typ` is the project memory entry point. It should contain a concise
+project overview plus a small set of high-value entry links. It should not
+become a flat list of every note. Detailed decision and experience memories
+live as ZK cards under `note/`, and non-entry notes should be reachable through
+card-to-card semantic links.
+
+The default AI context begins with generated `Memory.md`, so the entry point
+must orient the agent before any note is opened. Curation should keep active
+notes reachable, resolve or retire orphan notes, and prefer semantic navigation
+over direct disclosure.
 
 Memory Dream should not reimplement ZK CRUD. Future commands such as
 `memory-dream new` should wrap `zk-lsp --wiki-root <source> new`.
@@ -479,10 +487,12 @@ rsync -a skills/memory-dream-curator "${CODEX_HOME:-$HOME/.codex}/skills/"
 ```
 
 `memory-dream-coding` is for normal coding sessions: load project context,
-keep artifacts current, and record lightweight decision or experience notes.
+keep artifacts current, and record lightweight decision or experience notes
+without routinely changing the project entry point.
 
 `memory-dream-curator` is for periodic consolidation: review notes, link
-durable memories into `Memory.md`, rebuild artifacts, and verify `context`.
+durable entry memories into `Memory.md`, maintain the entry overview, resolve
+or retire orphan notes, rebuild artifacts, and verify `context`.
 
 ## Error Handling
 

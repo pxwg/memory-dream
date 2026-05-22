@@ -37,14 +37,14 @@ At the end of a task, write memory only when there is durable value:
 
 Use concise titles. One note should capture one reusable idea.
 
-Create linked, immediately consumable memory with:
+Create ordinary coding memory with:
 
 ```bash
-memory-dream new --title "<title>" --kind decision --content "<body>" --link --build
-memory-dream new --title "<title>" --kind experience --content "<body>" --link --build
+memory-dream new --title "<title>" --kind decision --content "<body>" --build
+memory-dream new --title "<title>" --kind experience --content "<body>" --build
 ```
 
-Use `--link --build` when the note should appear in future `memory-dream context`. Omit `--link` for scratch notes that should not enter default AI context yet.
+Do not link routine coding notes into `Memory.md` by default. Linking changes the project-level memory entry point and should usually be left to curation. Use `--link --build` only when the user explicitly asks to promote the note or when the note is clearly an entry-level project decision that future agents must see immediately.
 
 ## Updating Existing Notes
 
@@ -54,15 +54,15 @@ Use `--link --build` when the note should appear in future `memory-dream context
 4. Run `memory-dream build`.
 5. Run `memory-dream context` to verify the memory is consumable.
 
-## Link Existing Notes
+## Link Existing Notes Sparingly
 
-If a useful note exists but is not in default context:
+If the user explicitly asks to promote a useful note into default context:
 
 ```bash
 memory-dream link <id> --build
 ```
 
-`link` is idempotent and appends the note reference to `index.typ`.
+`link` is idempotent and appends the note reference to `index.typ`. Do not use it as a routine end-of-task step.
 
 ## Guardrails
 

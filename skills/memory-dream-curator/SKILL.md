@@ -37,6 +37,19 @@ Review notes for durable value:
 
 Use `memory-dream edit <id>` to locate source notes that need revision.
 
+## Maintain The Entry Point
+
+`index.typ` compiles to `Memory.md`, so it must be more than a flat ID list. During curation, make sure the generated `Memory.md` has:
+
+- a short project-level overview that orients a future coding agent before any note is opened
+- a small set of important entry links, not every note
+- section labels or short prose that explain why linked notes matter
+- lightweight links into major decision or experience clusters
+
+Prefer semantic navigation over direct disclosure. The first context load should explain the project memory shape and expose only high-value entry cards; detailed notes should be reached through card-to-card links.
+
+Use `memory-dream open` to locate the source wiki and edit `index.typ` when the overview or entry structure needs changes. Then run `memory-dream build`.
+
 ## Promote Into Default Context
 
 Important notes must be linked from the project entry point so they enter generated `Memory.md` and default `memory-dream context`.
@@ -56,14 +69,34 @@ memory-dream new --title "<title>" --kind experience --content "<summary>" --lin
 
 Prefer `decision` for durable project choices and `experience` for lessons learned from implementation or debugging.
 
+Only link notes that are useful entry points. Do not link every active note directly from `index.typ`.
+
+## Graph Hygiene
+
+Run:
+
+```bash
+memory-dream check
+```
+
+Resolve orphan notes before finishing curation. For each orphan:
+
+- link it from a relevant card if it is still active but too detailed for `index.typ`
+- link it from `index.typ` only if it is an important entry point
+- merge it into another note when it duplicates an existing memory
+- archive or retire it in source metadata/content if it is no longer active
+
+The goal is not maximum exposure. The goal is a navigable graph where active notes have semantic paths and `Memory.md` stays compact.
+
 ## Verification
 
 After curating:
 
 1. Run `memory-dream status --format json`.
 2. Confirm `built` is true and `stale` is false.
-3. Run `memory-dream context`.
-4. Check that the default context contains the intended Memory.md entry and linked notes.
+3. Run `memory-dream check`.
+4. Run `memory-dream context`.
+5. Check that the default context contains a useful overview, the intended entry links, and no unnecessary note dump.
 
 If `context` is too large or noisy, unlinking is not currently a CLI operation. Use `memory-dream open` to locate the source wiki, edit `index.typ` only when necessary, then run `memory-dream build`.
 
@@ -74,6 +107,8 @@ Report:
 - notes created
 - notes edited
 - notes linked into Memory.md
+- index overview or structure changes
+- orphan notes resolved or intentionally archived
 - build/context verification result
 - any remaining unlinked notes worth future review
 
