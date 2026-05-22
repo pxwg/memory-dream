@@ -807,9 +807,13 @@ def extract_tags_and_body(lines: list[str]) -> tuple[list[str], list[str]]:
         stripped = line.strip()
         if stripped.startswith("#import "):
             continue
+        if stripped.startswith("#include "):
+            continue
         if stripped.startswith("#show:"):
             continue
         if stripped.startswith("#status_tag("):
+            continue
+        if stripped.startswith("//"):
             continue
         tag_matches = re.findall(r"#tag\.([A-Za-z0-9_-]+)", line)
         if tag_matches and stripped.replace(" ", "") == "".join(f"#tag.{tag}" for tag in tag_matches):

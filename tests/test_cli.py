@@ -51,6 +51,8 @@ class MemoryDreamCliTests(unittest.TestCase):
                 "\n".join(
                     [
                         '#import "../include.typ": *',
+                        '#include "../link.typ"',
+                        "// note template comment",
                         "#let zk-metadata = toml(bytes(",
                         "  ```toml",
                         "  schema-version = 1",
@@ -82,6 +84,9 @@ class MemoryDreamCliTests(unittest.TestCase):
                 "\n".join(
                     [
                         '#import "include.typ": *',
+                        "// index.typ - editable entry point",
+                        "// Compile this file with Typst to produce the full document.",
+                        '#include "link.typ"',
                         "= Project Memory",
                         "",
                         "- @2605221059",
@@ -106,7 +111,11 @@ class MemoryDreamCliTests(unittest.TestCase):
             self.assertTrue(card.exists())
             self.assertTrue(related_card.exists())
             self.assertIn("[Memory Dream @2605221059](memory/2605221059-memory-dream.md)", memory.read_text())
+            self.assertNotIn("#include", memory.read_text())
+            self.assertNotIn("// index.typ", memory.read_text())
             self.assertIn("tags = [\"idea\"]", card.read_text())
+            self.assertNotIn("#include", card.read_text())
+            self.assertNotIn("// note template comment", card.read_text())
             self.assertNotIn("))", card.read_text())
             self.assertIn("[Memory Dream @2605221059](2605221059-memory-dream.md)", related_card.read_text())
 
