@@ -739,6 +739,40 @@ class MemoryDreamCliTests(unittest.TestCase):
             self.assertEqual(final_parsed["linked"], 1)
             self.assertEqual(final_parsed["unlinked"], 0)
 
+    def test_link_ignores_commented_references(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project"
+            project.mkdir()
+            dream_root = base / "dream"
+            bin_dir = base / "bin"
+            bin_dir.mkdir()
+            install_fake_zk_lsp(bin_dir / "zk-lsp")
+            env = {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+            init = self.run_cli("init", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(init.returncode, 0, init.stderr)
+            project_dir = next((dream_root / "projects").iterdir())
+            source = project_dir / "source"
+            note = source / "note" / "2605221400.typ"
+            note.write_text("= Commented Link <2605221400>\n", encoding="utf-8")
+            (source / "index.typ").write_text("= Project Memory\n\n// @2605221400\n", encoding="utf-8")
+
+            status = self.run_cli("status", "--dream-root", str(dream_root), "--format", "json", cwd=project, env=env)
+            self.assertEqual(status.returncode, 0, status.stderr)
+            parsed_status = json.loads(status.stdout)
+            self.assertEqual(parsed_status["linked"], 0)
+            self.assertEqual(parsed_status["unlinked"], 1)
+
+            link = self.run_cli("link", "--dream-root", str(dream_root), "2605221400", "--build", cwd=project, env=env)
+            self.assertEqual(link.returncode, 0, link.stderr)
+            index_text = (source / "index.typ").read_text(encoding="utf-8")
+            self.assertIn("// @2605221400", index_text)
+            self.assertIn("- @2605221400", index_text)
+
+            memory = project_dir / "artifact" / "Memory.md"
+            self.assertIn("[Commented Link @2605221400](memory/2605221400-commented-link.md)", memory.read_text())
+
 
 def install_fake_zk_lsp(path: Path, *, check_exit: int = 0, init_exit: int = 0, write_partial: bool = False) -> None:
     path.write_text(

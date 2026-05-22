@@ -715,7 +715,7 @@ def linked_note_ids(project: Project) -> set[str]:
     index_path = project.source / "index.typ"
     if not index_path.exists():
         return set()
-    return set(re.findall(r"@(\d{10})", index_path.read_text(encoding="utf-8")))
+    return set(re.findall(r"@(\d{10})", uncommented_typst_text(index_path.read_text(encoding="utf-8"))))
 
 
 def note_info_by_id(project: Project, note_id: str) -> dict[str, str]:
@@ -761,11 +761,37 @@ def link_note(project: Project, note_id: str) -> None:
     validate_note_id(note_id)
     note_path_for_id(project, note_id)
     index_path = project.source / "index.typ"
-    text = index_path.read_text(encoding="utf-8")
-    if re.search(rf"@{re.escape(note_id)}(?!\d)", text):
-        return
-    suffix = "" if text.endswith("\n") else "\n"
-    index_path.write_text(f"{text}{suffix}- @{note_id}\n", encoding="utf-8")
+    with file_lock(project.source.parent / ".index.lock"):
+        text = index_path.read_text(encoding="utf-8")
+        if re.search(rf"@{re.escape(note_id)}(?!\d)", uncommented_typst_text(text)):
+            return
+        suffix = "" if text.endswith("\n") else "\n"
+        atomic_write_text(index_path, f"{text}{suffix}- @{note_id}\n")
+
+
+def uncommented_typst_text(text: str) -> str:
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("//"))
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    with tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        delete=False,
+    ) as file:
+        tmp_path = Path(file.name)
+        file.write(text)
+        file.flush()
+        os.fsync(file.fileno())
+    try:
+        tmp_path.replace(path)
+        fsync_directory(path.parent)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def build_artifacts(project: Project) -> None:
