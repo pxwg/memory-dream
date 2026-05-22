@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -256,7 +257,7 @@ class MemoryDreamCliTests(unittest.TestCase):
             self.assertIn("invalid registry", result.stderr)
             self.assertTrue(sentinel.exists())
 
-    def test_build_rejects_duplicate_note_ids_before_cleaning_artifacts(self) -> None:
+    def test_build_rejects_filename_header_mismatch_before_cleaning_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             project = base / "project"
@@ -282,6 +283,116 @@ class MemoryDreamCliTests(unittest.TestCase):
             self.assertIn("note filename does not match header id", build.stderr)
             self.assertTrue(sentinel.exists())
 
+    def test_registry_id_escape_is_rejected_without_deleting_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project"
+            project.mkdir()
+            dream_root = base / "dream"
+            escaped_base = base / "escape"
+            source = escaped_base / "source"
+            artifact = escaped_base / "artifact"
+            cache = escaped_base / "cache"
+            (source / "note").mkdir(parents=True)
+            artifact.mkdir(parents=True)
+            cache.mkdir(parents=True)
+            sentinel = artifact / "do-not-delete.txt"
+            sentinel.write_text("keep", encoding="utf-8")
+            (source / "index.typ").write_text("= Project Memory\n", encoding="utf-8")
+            dream_root.mkdir()
+            (dream_root / "dream.toml").write_text(
+                "\n".join(
+                    [
+                        "version = 1",
+                        "",
+                        "[[project]]",
+                        'id = "../../escape"',
+                        'name = "project"',
+                        f'root = "{project}"',
+                        f'source = "{source}"',
+                        f'artifact = "{artifact}"',
+                        f'cache = "{cache}"',
+                        'created_at = "2026-05-22T00:00:00+08:00"',
+                        'updated_at = "2026-05-22T00:00:00+08:00"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            bin_dir = base / "bin"
+            bin_dir.mkdir()
+            install_fake_zk_lsp(bin_dir / "zk-lsp")
+            env = {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+            result = self.run_cli("build", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("invalid project id", result.stderr)
+            self.assertTrue(sentinel.exists())
+
+    def test_failed_init_cleans_unregistered_project_dir_for_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project"
+            project.mkdir()
+            dream_root = base / "dream"
+            bin_dir = base / "bin"
+            bin_dir.mkdir()
+            fake = bin_dir / "zk-lsp"
+            install_fake_zk_lsp(fake, init_exit=2, write_partial=True)
+            env = {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+            failed = self.run_cli("init", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(failed.returncode, 1)
+            self.assertFalse(any((dream_root / "projects").glob("*")))
+
+            install_fake_zk_lsp(fake)
+            retried = self.run_cli("init", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(retried.returncode, 0, retried.stderr)
+            self.assertTrue((dream_root / "dream.toml").exists())
+
+    def test_frontmatter_reserved_metadata_keys_are_not_duplicated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project"
+            project.mkdir()
+            dream_root = base / "dream"
+            bin_dir = base / "bin"
+            bin_dir.mkdir()
+            install_fake_zk_lsp(bin_dir / "zk-lsp")
+            env = {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+            init = self.run_cli("init", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(init.returncode, 0, init.stderr)
+            project_dir = next((dream_root / "projects").iterdir())
+            source = project_dir / "source"
+            note = source / "note" / "2605221059.typ"
+            note.write_text(
+                "\n".join(
+                    [
+                        '#import "../include.typ": *',
+                        "#let zk-metadata = toml(bytes(",
+                        "  ```toml",
+                        '  title = "Conflicting"',
+                        '  source = "conflicting.typ"',
+                        '  tags = ["conflict"]',
+                        '  relation = "active"',
+                        "  ```",
+                        "))",
+                        "",
+                        "= Memory Dream <2605221059>",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            build = self.run_cli("build", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(build.returncode, 0, build.stderr)
+            card = project_dir / "artifact" / "memory" / "2605221059-memory-dream.md"
+            frontmatter = card.read_text(encoding="utf-8").split("+++", 2)[1]
+            parsed = tomllib.loads(frontmatter)
+            self.assertEqual(parsed["title"], "Memory Dream")
+            self.assertEqual(parsed["source"], "note/2605221059.typ")
+            self.assertEqual(parsed["relation"], "active")
+
     def test_bad_registry_project_entry_reports_user_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -306,7 +417,7 @@ class MemoryDreamCliTests(unittest.TestCase):
             self.assertIn("project root does not exist", result.stderr)
 
 
-def install_fake_zk_lsp(path: Path, *, check_exit: int = 0) -> None:
+def install_fake_zk_lsp(path: Path, *, check_exit: int = 0, init_exit: int = 0, write_partial: bool = False) -> None:
     path.write_text(
         """#!/usr/bin/env python3
 import pathlib
@@ -319,7 +430,9 @@ if args == ["init"]:
     (root / "include.typ").write_text("", encoding="utf-8")
     (root / "index.typ").write_text("= Project Memory\\n", encoding="utf-8")
     (root / "link.typ").write_text("", encoding="utf-8")
-    raise SystemExit(0)
+    if WRITE_PARTIAL:
+        (root / "partial.typ").write_text("partial", encoding="utf-8")
+    raise SystemExit(INIT_EXIT)
 if len(args) >= 3 and args[0] == "--wiki-root":
     command = args[2]
     if command == "generate":
@@ -328,7 +441,9 @@ if len(args) >= 3 and args[0] == "--wiki-root":
     if command == "check":
         raise SystemExit(CHECK_EXIT)
 raise SystemExit(2)
-""".replace("CHECK_EXIT", str(check_exit)),
+""".replace("CHECK_EXIT", str(check_exit))
+        .replace("INIT_EXIT", str(init_exit))
+        .replace("WRITE_PARTIAL", "True" if write_partial else "False"),
         encoding="utf-8",
     )
     path.chmod(0o755)
