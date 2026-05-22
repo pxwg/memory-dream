@@ -71,6 +71,8 @@ def cmd_init(args: argparse.Namespace) -> int:
     project_root = resolve_project_root(args.project_root, dream_root, for_init=True)
     registry = load_registry(dream_root)
     existing = find_project_by_root(registry, project_root)
+    if existing is None and args.project_root is None:
+        existing = find_project_containing_path(registry, Path.cwd().resolve())
     if existing:
         print_binding(existing)
         return 0
@@ -333,7 +335,7 @@ def build_artifacts(project: Project) -> None:
     link_map = {
         info["id"]: {
             "title": info["title"],
-            "href": f"memory/{artifact_name(info['id'], info['title'])}",
+            "filename": artifact_name(info["id"], info["title"]),
         }
         for info in note_infos
     }
@@ -344,7 +346,14 @@ def build_artifacts(project: Project) -> None:
 
     index_text = index_path.read_text(encoding="utf-8")
     (project.artifact / "Memory.md").write_text(
-        normalize_typst(index_text, source="index.typ", link_map=link_map, note_id=None, title=None),
+        normalize_typst(
+            index_text,
+            source="index.typ",
+            link_map=link_map,
+            note_id=None,
+            title=None,
+            link_prefix="memory/",
+        ),
         encoding="utf-8",
     )
 
@@ -358,6 +367,7 @@ def build_artifacts(project: Project) -> None:
                 link_map=link_map,
                 note_id=info["id"],
                 title=info["title"],
+                link_prefix="",
             ),
             encoding="utf-8",
         )
@@ -396,10 +406,11 @@ def normalize_typst(
     link_map: dict[str, dict[str, str]],
     note_id: str | None,
     title: str | None,
+    link_prefix: str,
 ) -> str:
     metadata, body = extract_metadata(text)
     tags, body_lines = extract_tags_and_body(body.splitlines())
-    body_text = "\n".join(normalize_line(line, link_map) for line in body_lines).strip()
+    body_text = "\n".join(normalize_line(line, link_map, link_prefix) for line in body_lines).strip()
     frontmatter = render_frontmatter(metadata, source=source, tags=tags, note_id=note_id, title=title)
     return f"{GENERATED_MARKER}\n\n{frontmatter}\n\n{body_text}\n"
 
@@ -451,22 +462,22 @@ def extract_tags_and_body(lines: list[str]) -> tuple[list[str], list[str]]:
     return sorted(set(tags)), body
 
 
-def normalize_line(line: str, link_map: dict[str, dict[str, str]]) -> str:
+def normalize_line(line: str, link_map: dict[str, dict[str, str]], link_prefix: str) -> str:
     heading = re.match(r"^(=+)\s+(.+)$", line)
     if heading:
         level = len(heading.group(1))
         text = re.sub(r"\s+<\d{10}>\s*$", "", heading.group(2)).strip()
-        return f"{'#' * level} {replace_refs(text, link_map)}"
-    return replace_refs(line, link_map)
+        return f"{'#' * level} {replace_refs(text, link_map, link_prefix)}"
+    return replace_refs(line, link_map, link_prefix)
 
 
-def replace_refs(line: str, link_map: dict[str, dict[str, str]]) -> str:
+def replace_refs(line: str, link_map: dict[str, dict[str, str]], link_prefix: str) -> str:
     def repl(match: re.Match[str]) -> str:
         ref = match.group(1)
         target = link_map.get(ref)
         if target is None:
             return f"@{ref}"
-        return f"[{target['title']} @{ref}]({target['href']})"
+        return f"[{target['title']} @{ref}]({link_prefix}{target['filename']})"
 
     return re.sub(r"@(\d{10})", repl, line)
 

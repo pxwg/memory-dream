@@ -64,6 +64,18 @@ class MemoryDreamCliTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            related = source / "note" / "2605221100.typ"
+            related.write_text(
+                "\n".join(
+                    [
+                        '#import "../include.typ": *',
+                        "",
+                        "= Related Note <2605221100>",
+                        "Back to @2605221059",
+                    ]
+                ),
+                encoding="utf-8",
+            )
             (source / "index.typ").write_text(
                 "\n".join(
                     [
@@ -87,10 +99,13 @@ class MemoryDreamCliTests(unittest.TestCase):
             artifact = next((dream_root / "projects").iterdir()) / "artifact"
             memory = artifact / "Memory.md"
             card = artifact / "memory" / "2605221059-memory-dream.md"
+            related_card = artifact / "memory" / "2605221100-related-note.md"
             self.assertTrue(memory.exists())
             self.assertTrue(card.exists())
+            self.assertTrue(related_card.exists())
             self.assertIn("[Memory Dream @2605221059](memory/2605221059-memory-dream.md)", memory.read_text())
             self.assertIn("tags = [\"idea\"]", card.read_text())
+            self.assertIn("[Memory Dream @2605221059](2605221059-memory-dream.md)", related_card.read_text())
 
             show = self.run_cli("--dream-root", str(dream_root), "show", cwd=project, env=env)
             self.assertEqual(show.returncode, 0, show.stderr)
@@ -146,6 +161,28 @@ class MemoryDreamCliTests(unittest.TestCase):
 
             result = self.run_cli("--dream-root", str(dream_root), "check", cwd=project, env=env)
             self.assertEqual(result.returncode, 7)
+
+    def test_init_from_non_git_subdirectory_reuses_registered_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project"
+            subdir = project / "nested"
+            subdir.mkdir(parents=True)
+            dream_root = base / "dream"
+            bin_dir = base / "bin"
+            bin_dir.mkdir()
+            install_fake_zk_lsp(bin_dir / "zk-lsp")
+            env = {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+            first = self.run_cli("--dream-root", str(dream_root), "init", cwd=project, env=env)
+            self.assertEqual(first.returncode, 0, first.stderr)
+            second = self.run_cli("--dream-root", str(dream_root), "init", cwd=subdir, env=env)
+            self.assertEqual(second.returncode, 0, second.stderr)
+
+            registry = (dream_root / "dream.toml").read_text(encoding="utf-8")
+            self.assertEqual(registry.count("[[project]]"), 1)
+            self.assertIn('name = "project"', registry)
+            self.assertNotIn('name = "nested"', registry)
 
 
 def install_fake_zk_lsp(path: Path, *, check_exit: int = 0) -> None:
