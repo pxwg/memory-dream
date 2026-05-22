@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -156,7 +157,8 @@ def cmd_build(args: argparse.Namespace) -> int:
     project = require_project(args)
     require_source_wiki(project)
     run_zk_lsp(["--wiki-root", str(project.source), "generate"], cwd=project.source)
-    build_artifacts(project)
+    with file_lock(project.source.parent / ".build.lock"):
+        build_artifacts(project)
     print(project.artifact)
     return 0
 
@@ -241,8 +243,23 @@ def new_project(dream_root: Path, root: Path) -> Project:
 
 
 def ensure_new_project_dirs(project: Project) -> None:
+    validate_project_id(project.id, Path("runtime project"))
+    projects_root = project.source.parent.parent
     project_dir = project.source.parent
-    project_dir.mkdir(parents=True, exist_ok=True)
+    if projects_root.exists() and projects_root.is_symlink():
+        raise MemoryDreamError(f"projects directory must not be a symlink: {projects_root}")
+    projects_root.mkdir(parents=True, exist_ok=True)
+    if project_dir.exists():
+        if project_dir.is_symlink() or not project_dir.is_dir():
+            raise MemoryDreamError(f"project directory is not a plain directory: {project_dir}")
+        if any(project_dir.iterdir()):
+            raise MemoryDreamError(f"project directory exists but is not empty for an unregistered project: {project_dir}")
+    else:
+        project_dir.mkdir()
+    try:
+        project_dir.resolve().relative_to(projects_root.resolve())
+    except ValueError as exc:
+        raise MemoryDreamError(f"project directory escapes managed projects root: {project_dir}") from exc
     if project.source.exists() and any(project.source.iterdir()):
         raise MemoryDreamError(f"source exists but is not empty for an unregistered project: {project.source}")
     project.source.mkdir(parents=True, exist_ok=True)
@@ -404,10 +421,16 @@ def fsync_directory(path: Path) -> None:
 @contextlib.contextmanager
 def registry_lock(dream_root: Path):
     dream_root.mkdir(parents=True, exist_ok=True)
+    with file_lock(dream_root / ".dream.lock"):
+        yield
+
+
+@contextlib.contextmanager
+def file_lock(lock_path: Path):
     if fcntl is None:
         yield
         return
-    lock_path = dream_root / ".dream.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+", encoding="utf-8") as lock_file:
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
         try:
@@ -417,7 +440,7 @@ def registry_lock(dream_root: Path):
 
 
 def toml_escape(value: str) -> str:
-    return value.replace("\\", "\\\\").replace('"', '\\"')
+    return json.dumps(value, ensure_ascii=False)[1:-1]
 
 
 def find_project_by_root(projects: Iterable[Project], root: Path) -> Project | None:
@@ -474,40 +497,46 @@ def build_artifacts(project: Project) -> None:
         for info in note_infos
     }
 
-    clean_artifact_dir(project)
-    memory_dir = project.artifact / "memory"
-    memory_dir.mkdir(parents=True, exist_ok=True)
+    staging = create_artifact_staging_dir(project)
+    try:
+        memory_dir = staging / "memory"
+        memory_dir.mkdir(parents=True, exist_ok=True)
 
-    index_text = index_path.read_text(encoding="utf-8")
-    (project.artifact / "Memory.md").write_text(
-        normalize_typst(
-            index_text,
-            source="index.typ",
-            link_map=link_map,
-            note_id=None,
-            title=None,
-            link_prefix="memory/",
-        ),
-        encoding="utf-8",
-    )
-
-    for path, info in zip(notes, note_infos, strict=True):
-        rel_source = f"note/{path.name}"
-        output = memory_dir / artifact_name(info["id"], info["title"])
-        output.write_text(
+        index_text = index_path.read_text(encoding="utf-8")
+        (staging / "Memory.md").write_text(
             normalize_typst(
-                path.read_text(encoding="utf-8"),
-                source=rel_source,
+                index_text,
+                source="index.typ",
                 link_map=link_map,
-                note_id=info["id"],
-                title=info["title"],
-                link_prefix="",
+                note_id=None,
+                title=None,
+                link_prefix="memory/",
             ),
             encoding="utf-8",
         )
 
+        for path, info in zip(notes, note_infos, strict=True):
+            rel_source = f"note/{path.name}"
+            output = memory_dir / artifact_name(info["id"], info["title"])
+            output.write_text(
+                normalize_typst(
+                    path.read_text(encoding="utf-8"),
+                    source=rel_source,
+                    link_map=link_map,
+                    note_id=info["id"],
+                    title=info["title"],
+                    link_prefix="",
+                ),
+                encoding="utf-8",
+            )
+        swap_artifact_dir(project, staging)
+    except Exception:
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
+        raise
 
-def clean_artifact_dir(project: Project) -> None:
+
+def validate_artifact_dir(project: Project) -> None:
     validate_project_id(project.id, Path("runtime project"))
     artifact = project.artifact
     expected = (project.source.parent / "artifact").resolve()
@@ -517,12 +546,33 @@ def clean_artifact_dir(project: Project) -> None:
         raise MemoryDreamError(f"refusing to clean artifact for inconsistent project paths: {project.id}")
     if artifact.resolve() != expected:
         raise MemoryDreamError(f"refusing to clean unmanaged artifact directory: {artifact}")
-    artifact.mkdir(parents=True, exist_ok=True)
-    for path in artifact.iterdir():
-        if path.is_dir():
-            shutil.rmtree(path)
-        elif path.is_file():
-            path.unlink()
+
+
+def create_artifact_staging_dir(project: Project) -> Path:
+    validate_artifact_dir(project)
+    project_dir = project.source.parent
+    return Path(tempfile.mkdtemp(prefix=".artifact.", suffix=".tmp", dir=project_dir))
+
+
+def swap_artifact_dir(project: Project, staging: Path) -> None:
+    validate_artifact_dir(project)
+    artifact = project.artifact
+    project_dir = project.source.parent
+    backup = project_dir / f".artifact.{os.getpid()}.bak"
+    if backup.exists():
+        shutil.rmtree(backup)
+    try:
+        if artifact.exists():
+            artifact.rename(backup)
+        staging.rename(artifact)
+        if backup.exists():
+            shutil.rmtree(backup)
+    except Exception:
+        if not artifact.exists() and backup.exists():
+            backup.rename(artifact)
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
+        raise
 
 
 def parse_note_info(path: Path) -> dict[str, str]:
@@ -671,13 +721,17 @@ def render_frontmatter(
     if metadata_lines:
         lines.extend(metadata_lines)
     lines.append("+++")
-    return "\n".join(lines)
+    frontmatter = "\n".join(lines)
+    try:
+        tomllib.loads("\n".join(lines[1:-1]))
+    except tomllib.TOMLDecodeError as exc:
+        raise MemoryDreamError(f"invalid normalized frontmatter for {source}: {exc}") from exc
+    return frontmatter
 
 
 def filter_reserved_frontmatter_keys(metadata: str) -> list[str]:
     lines: list[str] = []
     in_table = False
-    key_re = re.compile(r"^([A-Za-z0-9_-]+)\s*=")
     for line in metadata.splitlines():
         stripped = line.strip()
         if not stripped:
@@ -687,11 +741,38 @@ def filter_reserved_frontmatter_keys(metadata: str) -> list[str]:
             lines.append(line.rstrip())
             continue
         if not in_table:
-            match = key_re.match(stripped)
-            if match and match.group(1) in RESERVED_FRONTMATTER_KEYS:
+            key = top_level_toml_key(stripped)
+            if key in RESERVED_FRONTMATTER_KEYS:
                 continue
         lines.append(line.rstrip())
     return lines
+
+
+def top_level_toml_key(stripped_line: str) -> str | None:
+    if stripped_line.startswith('"'):
+        escaped = False
+        chars: list[str] = []
+        for char in stripped_line[1:]:
+            if escaped:
+                chars.append(char)
+                escaped = False
+                continue
+            if char == "\\":
+                escaped = True
+                continue
+            if char == '"':
+                rest = stripped_line[len(chars) + 2 :].lstrip()
+                return "".join(chars) if rest.startswith("=") else None
+            chars.append(char)
+        return None
+    if stripped_line.startswith("'"):
+        end = stripped_line.find("'", 1)
+        if end == -1:
+            return None
+        rest = stripped_line[end + 1 :].lstrip()
+        return stripped_line[1:end] if rest.startswith("=") else None
+    match = re.match(r"^([A-Za-z0-9_-]+)\s*=", stripped_line)
+    return match.group(1) if match else None
 
 
 def iso_now() -> str:

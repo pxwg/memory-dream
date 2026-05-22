@@ -6,6 +6,7 @@ import sys
 import tempfile
 import tomllib
 import unittest
+import hashlib
 from pathlib import Path
 
 
@@ -371,9 +372,9 @@ class MemoryDreamCliTests(unittest.TestCase):
                         '#import "../include.typ": *',
                         "#let zk-metadata = toml(bytes(",
                         "  ```toml",
-                        '  title = "Conflicting"',
-                        '  source = "conflicting.typ"',
-                        '  tags = ["conflict"]',
+                        '  "title" = "Conflicting"',
+                        '  "source" = "conflicting.typ"',
+                        '  "tags" = ["conflict"]',
                         '  relation = "active"',
                         "  ```",
                         "))",
@@ -392,6 +393,80 @@ class MemoryDreamCliTests(unittest.TestCase):
             self.assertEqual(parsed["title"], "Memory Dream")
             self.assertEqual(parsed["source"], "note/2605221059.typ")
             self.assertEqual(parsed["relation"], "active")
+
+    def test_init_rejects_preexisting_project_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project"
+            project.mkdir()
+            dream_root = base / "dream"
+            projects_root = dream_root / "projects"
+            projects_root.mkdir(parents=True)
+            project_id = f"project-{hashlib.sha1(str(project.resolve()).encode('utf-8')).hexdigest()[:6]}"
+            outside = base / "outside"
+            outside.mkdir()
+            (projects_root / project_id).symlink_to(outside, target_is_directory=True)
+            bin_dir = base / "bin"
+            bin_dir.mkdir()
+            install_fake_zk_lsp(bin_dir / "zk-lsp")
+            env = {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+            result = self.run_cli("init", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("not a plain directory", result.stderr)
+            self.assertFalse((outside / "source").exists())
+
+    def test_newline_project_path_round_trips_in_registry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project\nwith-newline"
+            project.mkdir()
+            dream_root = base / "dream"
+            bin_dir = base / "bin"
+            bin_dir.mkdir()
+            install_fake_zk_lsp(bin_dir / "zk-lsp")
+            env = {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+            init = self.run_cli("init", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(init.returncode, 0, init.stderr)
+            where = self.run_cli("where", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(where.returncode, 0, where.stderr)
+
+    def test_build_failure_keeps_existing_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project"
+            project.mkdir()
+            dream_root = base / "dream"
+            bin_dir = base / "bin"
+            bin_dir.mkdir()
+            install_fake_zk_lsp(bin_dir / "zk-lsp")
+            env = {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+            init = self.run_cli("init", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(init.returncode, 0, init.stderr)
+            project_dir = next((dream_root / "projects").iterdir())
+            source = project_dir / "source"
+            artifact = project_dir / "artifact"
+            old_memory = artifact / "Memory.md"
+            old_memory.write_text("old memory", encoding="utf-8")
+            (source / "note" / "2605221059.typ").write_text(
+                "\n".join(
+                    [
+                        "#let zk-metadata = toml(bytes(",
+                        "  ```toml",
+                        "  broken =",
+                        "  ```",
+                        "))",
+                        "= Broken <2605221059>",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            build = self.run_cli("build", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(build.returncode, 1)
+            self.assertEqual(old_memory.read_text(encoding="utf-8"), "old memory")
 
     def test_bad_registry_project_entry_reports_user_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
