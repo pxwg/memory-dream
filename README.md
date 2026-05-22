@@ -1,6 +1,6 @@
 # Memory Dream
 
-Memory Dream is a local project-memory harness backed by `zk-lsp`.
+Memory Dream is a local project-memory harness backed by [`zk-lsp`](https://github.com/pxwg/zk-lsp.typst).
 
 It binds any real project directory to an isolated Typst Zettelkasten wiki under
 `~/.memory-dream`, then builds that wiki into Markdown artifacts that agents can
