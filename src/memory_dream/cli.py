@@ -92,10 +92,23 @@ def make_parser() -> argparse.ArgumentParser:
         ("where", cmd_where, "print the current project binding"),
         ("open", cmd_open, "print the source wiki path"),
         ("build", cmd_build, "build Markdown artifacts"),
+        ("context", cmd_context, "print AI-consumable project memory context"),
         ("show", cmd_show, "print artifact/Memory.md"),
         ("check", cmd_check, "delegate graph checks to zk-lsp"),
     ]:
         sub = subparsers.add_parser(name, parents=[common], help=help_text)
+        if name == "context":
+            sub.add_argument(
+                "--all",
+                action="store_true",
+                help="Include every generated note artifact instead of only Memory.md references.",
+            )
+            sub.add_argument(
+                "--max-notes",
+                type=int,
+                default=20,
+                help="Maximum referenced notes to include unless --all is set.",
+            )
         sub.set_defaults(func=func)
 
     return parser
@@ -160,6 +173,18 @@ def cmd_build(args: argparse.Namespace) -> int:
     with file_lock(project.source.parent / ".build.lock"):
         build_artifacts(project)
     print(project.artifact)
+    return 0
+
+
+def cmd_context(args: argparse.Namespace) -> int:
+    project = require_project(args)
+    memory_file = project.artifact / "Memory.md"
+    if not memory_file.exists():
+        raise MemoryDreamError(f"artifact missing: {memory_file}; run `memory-dream build`")
+    max_notes = getattr(args, "max_notes", 20)
+    if max_notes < 0:
+        raise MemoryDreamError("--max-notes must be non-negative")
+    print(render_context(project, include_all=getattr(args, "all", False), max_notes=max_notes), end="")
     return 0
 
 
@@ -534,6 +559,90 @@ def build_artifacts(project: Project) -> None:
         if staging.exists():
             shutil.rmtree(staging, ignore_errors=True)
         raise
+
+
+def render_context(project: Project, *, include_all: bool, max_notes: int) -> str:
+    memory_file = project.artifact / "Memory.md"
+    memory_text = memory_file.read_text(encoding="utf-8")
+    note_dir = project.artifact / "memory"
+    if include_all:
+        note_paths = sorted(note_dir.glob("*.md")) if note_dir.exists() else []
+        omitted = 0
+    else:
+        referenced = extract_memory_links(memory_text)
+        if max_notes:
+            selected = referenced[:max_notes]
+            omitted = max(0, len(referenced) - len(selected))
+        else:
+            selected = []
+            omitted = len(referenced)
+        note_paths = [project.artifact / href for href in selected]
+
+    missing = [path for path in note_paths if not path.is_file()]
+    if missing:
+        paths = ", ".join(str(path) for path in missing)
+        raise MemoryDreamError(f"context references missing note artifacts: {paths}; run `memory-dream build`")
+
+    parts = [
+        "# Project Memory Context",
+        "",
+        "## Paths",
+        "",
+        f"- project-root: `{project.root}`",
+        f"- source-root: `{project.source}`",
+        f"- artifact-root: `{project.artifact}`",
+        f"- memory-entry: `{memory_file}`",
+        f"- note-artifacts: `{note_dir}`",
+        f"- source-notes: `{project.source / 'note'}`",
+        "",
+        "## Memory.md",
+        "",
+        memory_text.rstrip(),
+    ]
+
+    if note_paths:
+        parts.extend(["", "## Referenced Notes" if not include_all else "## All Notes"])
+        for path in note_paths:
+            parts.extend(
+                [
+                    "",
+                    f"### {path.name}",
+                    "",
+                    f"- artifact: `{path}`",
+                    f"- source-candidate: `{project.source / 'note' / (note_id_from_artifact(path.name) + '.typ')}`",
+                    "",
+                    path.read_text(encoding="utf-8").rstrip(),
+                ]
+            )
+
+    if omitted:
+        parts.extend(["", f"<!-- {omitted} referenced note(s) omitted by --max-notes. -->"])
+
+    return "\n".join(parts).rstrip() + "\n"
+
+
+def extract_memory_links(text: str) -> list[Path]:
+    links: list[Path] = []
+    seen: set[Path] = set()
+    for match in re.finditer(r"\[[^\]]*]\((memory/[^)\s]+\.md)\)", text):
+        href = Path(match.group(1))
+        if href.is_absolute() or ".." in href.parts or href.parts[0] != "memory":
+            continue
+        if href not in seen:
+            links.append(href)
+            seen.add(href)
+    for match in re.finditer(r"(?<!!)\[\[memory/([^\]\s]+\.md)]]", text):
+        href = Path("memory") / match.group(1)
+        if ".." in href.parts:
+            continue
+        if href not in seen:
+            links.append(href)
+            seen.add(href)
+    return links
+
+
+def note_id_from_artifact(filename: str) -> str:
+    return filename.split("-", 1)[0]
 
 
 def validate_artifact_dir(project: Project) -> None:

@@ -271,6 +271,7 @@ memory-dream init
 memory-dream where
 memory-dream open
 memory-dream build
+memory-dream context
 memory-dream show
 memory-dream check
 ```
@@ -336,6 +337,29 @@ Behavior:
 If `zk-lsp generate` fails, `build` should fail before writing artifacts unless
 the user explicitly requests a later best-effort mode.
 
+### `context`
+
+Prints AI-consumable Markdown context from existing artifacts.
+
+Behavior:
+
+1. Resolve current project binding.
+2. Read `artifact/Memory.md`.
+3. Parse `memory/*.md` links in `Memory.md`.
+4. Print `Memory.md` plus the referenced note artifacts.
+5. Include runtime-resolved project, source, artifact, and note paths so an AI
+   can request deeper files without hardcoded machine-specific paths.
+
+By default, `context` does not build artifacts. If artifacts are missing or
+stale, the command should ask the user to run `memory-dream build`.
+
+Options:
+
+```text
+--max-notes <n>  Limit referenced notes included in the context.
+--all            Include every generated note artifact.
+```
+
 ### `show`
 
 Prints `artifact/Memory.md`. If artifacts are missing, the command should ask
@@ -373,7 +397,7 @@ Version 1 does not include:
 - SQL database storage.
 - Embedding or vector search.
 - Provider integration for Alma, Codex, or Claude memories.
-- Query APIs beyond `show`.
+- Query APIs beyond `context` and `show`.
 - Bidirectional sync from Markdown artifact back to Typst source.
 - Writing generated memory files into the real project root.
 - Reimplementing zk-lsp note CRUD or graph semantics.

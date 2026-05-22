@@ -45,7 +45,7 @@ class MemoryDreamCliTests(unittest.TestCase):
             self.assertFalse((project / "Memory.md").exists())
             self.assertTrue((dream_root / "dream.toml").exists())
 
-            source = next((dream_root / "projects").iterdir()) / "source"
+            source = (next((dream_root / "projects").iterdir()) / "source").resolve()
             note = source / "note" / "2605221059.typ"
             note.write_text(
                 "\n".join(
@@ -98,7 +98,7 @@ class MemoryDreamCliTests(unittest.TestCase):
 
             build = self.run_cli("build", "--dream-root", str(dream_root), cwd=subdir, env=env)
             self.assertEqual(build.returncode, 0, build.stderr)
-            artifact = next((dream_root / "projects").iterdir()) / "artifact"
+            artifact = (next((dream_root / "projects").iterdir()) / "artifact").resolve()
             memory = artifact / "Memory.md"
             card = artifact / "memory" / "2605221059-memory-dream.md"
             related_card = artifact / "memory" / "2605221100-related-note.md"
@@ -113,6 +113,17 @@ class MemoryDreamCliTests(unittest.TestCase):
             show = self.run_cli("show", "--dream-root", str(dream_root), cwd=project, env=env)
             self.assertEqual(show.returncode, 0, show.stderr)
             self.assertIn("# Project Memory", show.stdout)
+
+            context = self.run_cli("context", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(context.returncode, 0, context.stderr)
+            self.assertIn("# Project Memory Context", context.stdout)
+            self.assertIn(f"- artifact-root: `{artifact}`", context.stdout)
+            self.assertIn("## Memory.md", context.stdout)
+            self.assertIn("## Referenced Notes", context.stdout)
+            self.assertIn("### 2605221059-memory-dream.md", context.stdout)
+            self.assertIn(f"- artifact: `{card}`", context.stdout)
+            self.assertIn(f"- source-candidate: `{source / 'note' / '2605221059.typ'}`", context.stdout)
+            self.assertNotIn("### 2605221100-related-note.md", context.stdout)
 
             check = self.run_cli("check", "--dream-root", str(dream_root), cwd=project, env=env)
             self.assertEqual(check.returncode, 0, check.stderr)
@@ -467,6 +478,89 @@ class MemoryDreamCliTests(unittest.TestCase):
             build = self.run_cli("build", "--dream-root", str(dream_root), cwd=project, env=env)
             self.assertEqual(build.returncode, 1)
             self.assertEqual(old_memory.read_text(encoding="utf-8"), "old memory")
+
+    def test_context_can_include_all_notes_or_limit_references(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project"
+            project.mkdir()
+            dream_root = base / "dream"
+            bin_dir = base / "bin"
+            bin_dir.mkdir()
+            install_fake_zk_lsp(bin_dir / "zk-lsp")
+            env = {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+            init = self.run_cli("init", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(init.returncode, 0, init.stderr)
+            project_dir = next((dream_root / "projects").iterdir())
+            source = project_dir / "source"
+            (source / "index.typ").write_text(
+                "\n".join(
+                    [
+                        "= Project Memory",
+                        "",
+                        "- @2605221059",
+                        "- @2605221100",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (source / "note" / "2605221059.typ").write_text("= First <2605221059>\n", encoding="utf-8")
+            (source / "note" / "2605221100.typ").write_text("= Second <2605221100>\n", encoding="utf-8")
+            (source / "note" / "2605221200.typ").write_text("= Unreferenced <2605221200>\n", encoding="utf-8")
+
+            build = self.run_cli("build", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(build.returncode, 0, build.stderr)
+
+            limited = self.run_cli("context", "--dream-root", str(dream_root), "--max-notes", "1", cwd=project, env=env)
+            self.assertEqual(limited.returncode, 0, limited.stderr)
+            self.assertIn("### 2605221059-first.md", limited.stdout)
+            self.assertNotIn("### 2605221100-second.md", limited.stdout)
+            self.assertNotIn("### 2605221200-unreferenced.md", limited.stdout)
+            self.assertIn("<!-- 1 referenced note(s) omitted by --max-notes. -->", limited.stdout)
+
+            all_notes = self.run_cli("context", "--dream-root", str(dream_root), "--all", cwd=project, env=env)
+            self.assertEqual(all_notes.returncode, 0, all_notes.stderr)
+            self.assertIn("## All Notes", all_notes.stdout)
+            self.assertIn("### 2605221059-first.md", all_notes.stdout)
+            self.assertIn("### 2605221100-second.md", all_notes.stdout)
+            self.assertIn("### 2605221200-unreferenced.md", all_notes.stdout)
+
+    def test_context_reports_missing_referenced_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project"
+            project.mkdir()
+            dream_root = base / "dream"
+            source = dream_root / "projects" / "project-123456" / "source"
+            artifact = dream_root / "projects" / "project-123456" / "artifact"
+            cache = dream_root / "projects" / "project-123456" / "cache"
+            (source / "note").mkdir(parents=True)
+            (artifact / "memory").mkdir(parents=True)
+            cache.mkdir(parents=True)
+            (artifact / "Memory.md").write_text("[Missing](memory/2605221059-missing.md)\n", encoding="utf-8")
+            (dream_root / "dream.toml").write_text(
+                "\n".join(
+                    [
+                        "version = 1",
+                        "",
+                        "[[project]]",
+                        'id = "project-123456"',
+                        'name = "project"',
+                        f'root = "{project}"',
+                        f'source = "{source}"',
+                        f'artifact = "{artifact}"',
+                        f'cache = "{cache}"',
+                        'created_at = "2026-05-22T00:00:00+08:00"',
+                        'updated_at = "2026-05-22T00:00:00+08:00"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            context = self.run_cli("context", "--dream-root", str(dream_root), cwd=project)
+            self.assertEqual(context.returncode, 1)
+            self.assertIn("context references missing note artifacts", context.stderr)
 
     def test_bad_registry_project_entry_reports_user_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
