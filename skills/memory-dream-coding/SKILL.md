@@ -48,6 +48,20 @@ memory-dream new --title "<title>" --kind experience --content "<body>" --build
 
 Do not link routine coding notes into `Memory.md` by default. Linking changes the project-level memory entry point and should usually be left to curation. Use `--link --build` only when the user explicitly asks to promote the note or when the note is clearly an entry-level project decision that future agents must see immediately.
 
+## Git Audit Trail
+
+The managed source wiki is a git repository. When the environment supports subagents, delegate memory writing to a dedicated memory-writing agent instead of mixing implementation edits and memory edits in the same agent flow.
+
+The memory-writing agent should:
+
+1. Run `memory-dream open` to locate the source wiki.
+2. Create or update source notes through `memory-dream`/`zk-lsp`.
+3. Run `memory-dream build` and `memory-dream context` for verification.
+4. Commit only the memory source/wiki changes inside the source wiki git repo.
+5. Use Conventional Commits, for example `docs(memory): record build artifact policy` or `chore(memory): add debugging experience`.
+
+Keep implementation repository commits separate from memory repository commits.
+
 ## Updating Existing Notes
 
 1. Use `memory-dream list --format json` to find candidate IDs.

@@ -181,6 +181,17 @@ entry links. It should be imperative, compact, and focused on behavior:
 The contract must stay short. Detailed rationale belongs in linked cards, not
 in the entry point.
 
+Each source wiki is also a git repository. Memory edits should be auditable:
+
+- Coding agents should delegate memory writes to a dedicated memory-writing
+  agent when the environment supports subagents.
+- Memory-writing agents should commit source wiki changes after writing notes,
+  using Conventional Commits.
+- Curator/dream sessions should commit each coherent memory consolidation as an
+  atomic git commit in the source wiki.
+- Generated artifacts remain rebuildable; the audit trail is centered on
+  `source/`, especially `index.typ` and `note/*.typ`.
+
 Memory Dream should not reimplement ZK CRUD. Future commands such as
 `memory-dream new` should wrap `zk-lsp --wiki-root <source> new`.
 

@@ -112,6 +112,20 @@ Resolve orphan notes before finishing curation. For each orphan:
 
 The goal is not maximum exposure. The goal is a navigable graph where active notes have semantic paths and `Memory.md` stays compact.
 
+## Git Audit Trail
+
+The managed source wiki is a git repository. Curator work must be auditable.
+
+Commit each coherent consolidation as an atomic commit in the source wiki:
+
+```bash
+git status --short
+git add index.typ note
+git commit -m "docs(memory): curate project entry points"
+```
+
+Use Conventional Commits. Do not mix unrelated memory refactors, lifecycle changes, and new summaries in the same commit when they can be separated cleanly.
+
 ## Verification
 
 After curating:
