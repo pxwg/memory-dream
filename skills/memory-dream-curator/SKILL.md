@@ -1,11 +1,11 @@
 ---
 name: memory-dream-curator
-description: Consolidate and curate Memory Dream project memory. Trigger when Codex should do a daily or periodic memory review, summarize recent coding work into durable decision or experience notes, link valuable notes into Memory.md, remove duplication, rebuild artifacts, or verify project memory quality using the memory-dream CLI.
+description: Consolidate and curate Memory Dream project memory for any project type. Trigger when Codex should do a daily or periodic memory review, summarize recent work into durable decision or experience notes, preserve user operations or preferences, link valuable notes into Memory.md, remove duplication, rebuild artifacts, or verify project memory quality using the memory-dream CLI.
 ---
 
 # Memory Dream Curator
 
-Use this skill for periodic memory consolidation, not normal implementation. The goal is to keep `Memory.md` useful as the project-level entry point while preserving detailed notes as linked cards.
+Use this skill for periodic memory consolidation, not normal project work. The goal is to keep `Memory.md` useful as the project-level entry point while preserving detailed notes as linked cards.
 
 ## Inputs
 
@@ -30,7 +30,7 @@ Then rerun `memory-dream context --all`.
 Review notes for durable value:
 
 - Keep project decisions, conventions, tradeoffs, and user preferences.
-- Keep reusable debugging or integration experiences.
+- Keep reusable workflow, tool, debugging, integration, creative, research, or physical-process experiences.
 - Merge or update notes that repeat the same lesson.
 - Leave generated artifacts untouched.
 - Avoid turning every task event into memory.
@@ -42,7 +42,7 @@ Use `memory-dream edit <id>` to locate source notes that need revision.
 `index.typ` compiles to `Memory.md`, so it must be more than a flat ID list. During curation, make sure the generated `Memory.md` has:
 
 - a compact Operational Contract near the top
-- a short project-level overview that orients a future coding agent before any note is opened
+- a short project-level overview that orients a future agent before any note is opened
 - a small set of important entry links, not every note
 - section labels or short prose that explain why linked notes matter
 - lightweight links into major decision or experience clusters
@@ -91,7 +91,7 @@ memory-dream new --title "<title>" --kind decision --content "<summary>" --link 
 memory-dream new --title "<title>" --kind experience --content "<summary>" --link --build
 ```
 
-Prefer `decision` for durable project choices and `experience` for lessons learned from implementation or debugging.
+Prefer `decision` for durable project choices and `experience` for lessons learned from work sessions, user operations, tools, process, or implementation.
 
 Only link notes that are useful entry points. Do not link every active note directly from `index.typ`.
 
@@ -155,4 +155,4 @@ Report:
 - Do not edit `artifact/Memory.md` or files under `artifact/memory/`.
 - Do not invent memories not supported by project context.
 - Do not store secrets or transient logs.
-- Keep summaries concise, factual, and reusable by future coding agents.
+- Keep summaries concise, factual, and reusable by future agents.

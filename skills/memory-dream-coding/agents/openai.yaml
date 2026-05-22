@@ -1,4 +1,0 @@
-interface:
-  display_name: "Memory Dream Coding"
-  short_description: "Use project memory while coding."
-  default_prompt: "Use Memory Dream Coding to load project memory, keep artifacts current, and record durable decisions or experiences from this coding task."

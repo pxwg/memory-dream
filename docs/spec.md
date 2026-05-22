@@ -4,7 +4,7 @@
 
 Memory Dream is a thin project-memory harness. It binds a real project directory
 to an isolated Typst Zettelkasten wiki managed under `~/.memory-dream`, then
-builds that wiki into Markdown artifacts for coding agents.
+builds that wiki into Markdown artifacts for agents.
 
 Memory Dream is not a second ZK implementation. It delegates ZK authoring,
 graph checks, note creation, metadata semantics, and link management to
@@ -512,7 +512,7 @@ Exit status should match the delegated `zk-lsp check` result.
 The repository distributes Codex skills under `skills/`:
 
 ```text
-skills/memory-dream-coding
+skills/memory-dream-project
 skills/memory-dream-curator
 ```
 
@@ -520,13 +520,14 @@ Install them into a Codex skills directory with:
 
 ```bash
 mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-rsync -a skills/memory-dream-coding "${CODEX_HOME:-$HOME/.codex}/skills/"
+rsync -a skills/memory-dream-project "${CODEX_HOME:-$HOME/.codex}/skills/"
 rsync -a skills/memory-dream-curator "${CODEX_HOME:-$HOME/.codex}/skills/"
 ```
 
-`memory-dream-coding` is for normal coding sessions: load project context,
-keep artifacts current, and record lightweight decision or experience notes
-without routinely changing the project entry point.
+`memory-dream-project` is for normal project sessions of any kind: load project
+context, keep artifacts current, and record lightweight decisions, experiences,
+user operations, or preferences without routinely changing the project entry
+point.
 
 `memory-dream-curator` is for periodic consolidation: review notes, link
 durable entry memories into `Memory.md`, maintain the entry overview, resolve

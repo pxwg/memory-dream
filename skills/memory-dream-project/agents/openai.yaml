@@ -1,0 +1,4 @@
+interface:
+  display_name: "Memory Dream Project"
+  short_description: "Use memory for any project."
+  default_prompt: "Use Memory Dream Project to load project memory, keep artifacts current, and record durable decisions, experiences, user operations, or preferences from this work session."
