@@ -797,6 +797,7 @@ class MemoryDreamCliTests(unittest.TestCase):
                         'URL "https://example.com//keep"',
                         "Plain https://example.com//index",
                         "hello // @2605221500",
+                        "tight//@2605221500",
                     ]
                 ),
                 encoding="utf-8",
@@ -815,7 +816,9 @@ class MemoryDreamCliTests(unittest.TestCase):
             self.assertIn('URL "https://example.com//keep"', memory_text)
             self.assertIn("Plain https://example.com//index", memory_text)
             self.assertIn("hello", memory_text)
+            self.assertIn("tight", memory_text)
             self.assertNotIn("// @2605221500", memory_text)
+            self.assertNotIn("//@2605221500", memory_text)
             self.assertIn("[Inline Link @2605221500](memory/2605221500-inline-link.md)", memory_text)
 
 

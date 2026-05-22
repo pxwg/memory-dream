@@ -782,6 +782,7 @@ def strip_typst_comments(text: str) -> str:
 def strip_typst_line_comment(line: str) -> str:
     in_double = False
     escaped = False
+    url_spans = url_like_spans(line)
     for idx, char in enumerate(line):
         if escaped:
             escaped = False
@@ -792,9 +793,17 @@ def strip_typst_line_comment(line: str) -> str:
         if char == '"':
             in_double = not in_double
             continue
-        if not in_double and line.startswith("//", idx) and (idx == 0 or line[idx - 1].isspace()):
+        if not in_double and line.startswith("//", idx) and not index_in_spans(idx, url_spans):
             return line[:idx].rstrip()
     return line
+
+
+def url_like_spans(line: str) -> list[tuple[int, int]]:
+    return [match.span() for match in re.finditer(r"\b[A-Za-z][A-Za-z0-9+.-]*://\S+", line)]
+
+
+def index_in_spans(index: int, spans: list[tuple[int, int]]) -> bool:
+    return any(start <= index < end for start, end in spans)
 
 
 def atomic_write_text(path: Path, text: str) -> None:
