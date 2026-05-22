@@ -252,6 +252,7 @@ def load_registry(dream_root: Path) -> list[Project]:
             )
         except KeyError as exc:
             raise MemoryDreamError(f"invalid registry {path}: missing project field {exc.args[0]}") from exc
+        validate_managed_paths(dream_root, project, path)
         if project.id in seen_ids:
             raise MemoryDreamError(f"invalid registry {path}: duplicate project id {project.id}")
         if project.root in seen_roots:
@@ -260,6 +261,26 @@ def load_registry(dream_root: Path) -> list[Project]:
         seen_roots.add(project.root)
         parsed.append(project)
     return parsed
+
+
+def validate_managed_paths(dream_root: Path, project: Project, registry_path: Path) -> None:
+    expected_base = (dream_root / "projects" / project.id).resolve()
+    expected_paths = {
+        "source": expected_base / "source",
+        "artifact": expected_base / "artifact",
+        "cache": expected_base / "cache",
+    }
+    actual_paths = {
+        "source": project.source,
+        "artifact": project.artifact,
+        "cache": project.cache,
+    }
+    for field, expected in expected_paths.items():
+        actual = actual_paths[field]
+        if actual != expected:
+            raise MemoryDreamError(
+                f"invalid registry {registry_path}: project {project.id} {field} must be {expected}, got {actual}"
+            )
 
 
 def write_registry(dream_root: Path, projects: list[Project]) -> None:
@@ -340,7 +361,7 @@ def build_artifacts(project: Project) -> None:
         for info in note_infos
     }
 
-    clean_artifact_dir(project.artifact)
+    clean_artifact_dir(project)
     memory_dir = project.artifact / "memory"
     memory_dir.mkdir(parents=True, exist_ok=True)
 
@@ -373,7 +394,11 @@ def build_artifacts(project: Project) -> None:
         )
 
 
-def clean_artifact_dir(artifact: Path) -> None:
+def clean_artifact_dir(project: Project) -> None:
+    artifact = project.artifact
+    expected = (project.source.parent / "artifact").resolve()
+    if artifact.resolve() != expected:
+        raise MemoryDreamError(f"refusing to clean unmanaged artifact directory: {artifact}")
     artifact.mkdir(parents=True, exist_ok=True)
     for path in artifact.iterdir():
         if path.is_dir():

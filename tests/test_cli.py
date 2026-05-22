@@ -184,6 +184,49 @@ class MemoryDreamCliTests(unittest.TestCase):
             self.assertIn('name = "project"', registry)
             self.assertNotIn('name = "nested"', registry)
 
+    def test_build_rejects_unmanaged_artifact_path_without_deleting_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project"
+            project.mkdir()
+            dream_root = base / "dream"
+            source = dream_root / "projects" / "project-123456" / "source"
+            cache = dream_root / "projects" / "project-123456" / "cache"
+            unsafe_artifact = base / "unsafe-artifact"
+            (source / "note").mkdir(parents=True)
+            cache.mkdir(parents=True)
+            unsafe_artifact.mkdir()
+            sentinel = unsafe_artifact / "do-not-delete.txt"
+            sentinel.write_text("keep", encoding="utf-8")
+            (source / "index.typ").write_text("= Project Memory\n", encoding="utf-8")
+            (dream_root / "dream.toml").write_text(
+                "\n".join(
+                    [
+                        "version = 1",
+                        "",
+                        "[[project]]",
+                        'id = "project-123456"',
+                        'name = "project"',
+                        f'root = "{project}"',
+                        f'source = "{source}"',
+                        f'artifact = "{unsafe_artifact}"',
+                        f'cache = "{cache}"',
+                        'created_at = "2026-05-22T00:00:00+08:00"',
+                        'updated_at = "2026-05-22T00:00:00+08:00"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            bin_dir = base / "bin"
+            bin_dir.mkdir()
+            install_fake_zk_lsp(bin_dir / "zk-lsp")
+            env = {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+            result = self.run_cli("--dream-root", str(dream_root), "build", cwd=project, env=env)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("invalid registry", result.stderr)
+            self.assertTrue(sentinel.exists())
+
 
 def install_fake_zk_lsp(path: Path, *, check_exit: int = 0) -> None:
     path.write_text(
