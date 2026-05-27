@@ -71,6 +71,12 @@ Promote an important entry note into `Memory.md`:
 memory-dream link <id> --build
 ```
 
+Update a note's zk-lsp lifecycle relation:
+
+```bash
+memory-dream lifecycle <id> active|archived|legacy --build
+```
+
 Inspect project memory state:
 
 ```bash

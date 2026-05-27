@@ -19,10 +19,14 @@ Allowed:
 - `memory-dream edit <id>` to locate and read source notes
 - read files under the managed source wiki and artifact directory
 
+`memory-dream list --format json` may include `lifecycle` and `metadata`; use
+those fields for filtering and interpretation only.
+
 Forbidden:
 
 - `memory-dream new`
 - `memory-dream link`
+- `memory-dream lifecycle`
 - direct edits
 - lifecycle or metadata changes
 - git commits

@@ -186,6 +186,49 @@ class MemoryDreamCliTests(unittest.TestCase):
             result = self.run_cli("--dream-root", str(dream_root), "check", cwd=project, env=env)
             self.assertEqual(result.returncode, 7)
 
+    def test_check_reports_archived_and_legacy_references(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project"
+            project.mkdir()
+            dream_root = base / "dream"
+            bin_dir = base / "bin"
+            bin_dir.mkdir()
+            install_fake_zk_lsp(bin_dir / "zk-lsp")
+            env = {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+            init = self.run_cli("init", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(init.returncode, 0, init.stderr)
+            source = next((dream_root / "projects").iterdir()) / "source"
+            (source / "index.typ").write_text(
+                "= Project Memory\n- @2605222000\n- @2605222100\n- @2605222100 @2605222200\n",
+                encoding="utf-8",
+            )
+            (source / "note" / "2605221900.typ").write_text(
+                make_note("Active Referrer", "2605221900", "active", "- @2605222000\n"),
+                encoding="utf-8",
+            )
+            (source / "note" / "2605222000.typ").write_text(
+                make_note("Archived Target", "2605222000", "archived", ""),
+                encoding="utf-8",
+            )
+            (source / "note" / "2605222100.typ").write_text(
+                make_note("Legacy Target", "2605222100", "legacy", "", relation_targets=["2605222200"]),
+                encoding="utf-8",
+            )
+            (source / "note" / "2605222200.typ").write_text(
+                make_note("Successor", "2605222200", "active", ""),
+                encoding="utf-8",
+            )
+
+            result = self.run_cli("check", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("warning: linked archived note", result.stdout)
+            self.assertIn("@2605222000 is archived.", result.stdout)
+            self.assertIn("info: linked legacy note", result.stdout)
+            self.assertIn("@2605222100 is legacy. New ids: @2605222200", result.stdout)
+            self.assertEqual(result.stdout.count("info: linked legacy note"), 1)
+
     def test_init_from_non_git_subdirectory_reuses_registered_project(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -739,6 +782,95 @@ class MemoryDreamCliTests(unittest.TestCase):
             self.assertEqual(final_parsed["linked"], 1)
             self.assertEqual(final_parsed["unlinked"], 0)
 
+    def test_lifecycle_updates_zk_metadata_relation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project"
+            project.mkdir()
+            dream_root = base / "dream"
+            bin_dir = base / "bin"
+            bin_dir.mkdir()
+            install_fake_zk_lsp(bin_dir / "zk-lsp")
+            env = {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+            init = self.run_cli("init", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(init.returncode, 0, init.stderr)
+            new = self.run_cli(
+                "new",
+                "--dream-root",
+                str(dream_root),
+                "--title",
+                "Retired Lesson",
+                "--id",
+                "2605221300",
+                "--kind",
+                "experience",
+                "--content",
+                "Old workflow.",
+                cwd=project,
+                env=env,
+            )
+            self.assertEqual(new.returncode, 0, new.stderr)
+
+            project_dir = next((dream_root / "projects").iterdir())
+            source = project_dir / "source"
+            updated = self.run_cli(
+                "lifecycle",
+                "--dream-root",
+                str(dream_root),
+                "2605221300",
+                "archive",
+                "--build",
+                cwd=project,
+                env=env,
+            )
+            self.assertEqual(updated.returncode, 0, updated.stderr)
+            self.assertIn("lifecycle: 2605221300  Retired Lesson  archived", updated.stdout)
+            note_text = (source / "note" / "2605221300.typ").read_text(encoding="utf-8")
+            self.assertIn('relation = "archived"', note_text)
+            self.assertNotIn('relation = "active"', note_text)
+
+            listed = self.run_cli("list", "--dream-root", str(dream_root), "--format", "json", cwd=project, env=env)
+            self.assertEqual(listed.returncode, 0, listed.stderr)
+            listed_note = json.loads(listed.stdout)[0]
+            self.assertEqual(listed_note["lifecycle"], "archived")
+            self.assertEqual(listed_note["metadata"]["relation"], "archived")
+
+            card = project_dir / "artifact" / "memory" / "2605221300-retired-lesson.md"
+            frontmatter = card.read_text(encoding="utf-8").split("+++", 2)[1]
+            self.assertEqual(tomllib.loads(frontmatter)["relation"], "archived")
+
+    def test_lifecycle_inserts_missing_metadata_block(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project"
+            project.mkdir()
+            dream_root = base / "dream"
+            bin_dir = base / "bin"
+            bin_dir.mkdir()
+            install_fake_zk_lsp(bin_dir / "zk-lsp")
+            env = {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+            init = self.run_cli("init", "--dream-root", str(dream_root), cwd=project, env=env)
+            self.assertEqual(init.returncode, 0, init.stderr)
+            project_dir = next((dream_root / "projects").iterdir())
+            note = project_dir / "source" / "note" / "2605221400.typ"
+            note.write_text("= Legacy Note <2605221400>\nPreserved for reference.\n", encoding="utf-8")
+
+            updated = self.run_cli(
+                "lifecycle",
+                "--dream-root",
+                str(dream_root),
+                "2605221400",
+                "legacy",
+                cwd=project,
+                env=env,
+            )
+            self.assertEqual(updated.returncode, 0, updated.stderr)
+            note_text = note.read_text(encoding="utf-8")
+            self.assertTrue(note_text.startswith("#let zk-metadata = toml(bytes("))
+            self.assertIn('relation = "legacy"', note_text)
+
     def test_link_ignores_commented_references(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -891,6 +1023,30 @@ raise SystemExit(2)
         encoding="utf-8",
     )
     path.chmod(0o755)
+
+
+def make_note(
+    title: str,
+    note_id: str,
+    relation: str,
+    body: str,
+    *,
+    relation_targets: list[str] | None = None,
+) -> str:
+    targets = relation_targets or []
+    return "\n".join(
+        [
+            "#let zk-metadata = toml(bytes(",
+            "  ```toml",
+            f'  relation = "{relation}"',
+            "  relation-target = [" + ", ".join(f'"{target}"' for target in targets) + "]",
+            "  ```",
+            "))",
+            "",
+            f"= {title} <{note_id}>",
+            body,
+        ]
+    )
 
 
 if __name__ == "__main__":

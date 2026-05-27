@@ -37,6 +37,9 @@ Review notes for durable value:
 
 Use `memory-dream edit <id>` to locate source notes that need revision.
 
+Use `memory-dream list --format json` to inspect note lifecycle metadata. The
+`lifecycle` field mirrors zk-lsp's top-level `relation` metadata.
+
 ## Maintain The Entry Point
 
 `index.typ` compiles to `Memory.md`, so it must be more than a flat ID list. During curation, make sure the generated `Memory.md` has:
@@ -108,9 +111,21 @@ Resolve orphan notes before finishing curation. For each orphan:
 - link it from a relevant card if it is still active but too detailed for `index.typ`
 - link it from `index.typ` only if it is an important entry point
 - merge it into another note when it duplicates an existing memory
-- archive or retire it in source metadata/content if it is no longer active
+- archive or mark it legacy with `memory-dream lifecycle <id> archived|legacy --build` if it is no longer active
 
 The goal is not maximum exposure. The goal is a navigable graph where active notes have semantic paths and `Memory.md` stays compact.
+
+Use lifecycle changes as their own coherent curation operation when possible:
+
+```bash
+memory-dream lifecycle <id> active --build
+memory-dream lifecycle <id> archived --build
+memory-dream lifecycle <id> legacy --build
+```
+
+`active` is for current guidance, `archived` is for useful but retired history,
+and `legacy` is for retained historical context that should not steer new work
+by default.
 
 ## Git Audit Trail
 

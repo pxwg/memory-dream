@@ -396,9 +396,10 @@ Options:
 --format text|json
 ```
 
-`list` resolves note IDs from `source/note/*.typ` and should prefer
-`zk-lsp note-info <id>` for metadata. It may fall back to parsing the
-constrained note heading form if `note-info` is unavailable.
+`list` resolves note IDs, titles, and lifecycle metadata from
+`source/note/*.typ` and should prefer `zk-lsp note-info <id>` for metadata. It
+may fall back to parsing the constrained note heading form and `zk-metadata`
+block if `note-info` is unavailable or incomplete.
 
 ### `new`
 
@@ -452,6 +453,27 @@ memory-dream link <id>
 If the ID is already referenced, `link` is idempotent. `--build` explicitly
 builds artifacts after linking.
 
+### `lifecycle`
+
+Updates a source note's zk-lsp lifecycle relation metadata:
+
+```text
+memory-dream lifecycle <id> active|archived|legacy
+```
+
+Options:
+
+```text
+--build
+```
+
+The command writes the selected value to the top-level `relation` key in the
+note's `zk-metadata` TOML block. If a note has no metadata block yet,
+`lifecycle` creates one. The values intentionally reuse zk-lsp's lifecycle
+metadata vocabulary instead of adding memory-dream-specific fields. `archive`
+is accepted as a compatibility alias and is written as zk-lsp's canonical
+`archived` value.
+
 ### `build`
 
 Builds Markdown artifacts from the source wiki.
@@ -503,7 +525,12 @@ Delegates graph integrity checks to zk-lsp:
 zk-lsp --wiki-root <source> check
 ```
 
-Memory Dream may add registry and artifact checks later.
+After the delegated check, Memory Dream also scans `index.typ` and
+`note/*.typ` references and reports links to retired lifecycle targets. Links to
+`relation = "archived"` notes are warnings; links to `relation = "legacy"`
+notes are informational, matching zk-lsp diagnostics. Legacy references are
+suppressed when a successor from `relation-target` appears later on the same
+line.
 
 Exit status should match the delegated `zk-lsp check` result.
 

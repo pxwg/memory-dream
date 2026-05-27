@@ -26,6 +26,10 @@ memory-dream list --format json
 memory-dream edit <id>
 ```
 
+`memory-dream list --format json` includes each note's `lifecycle` and source
+metadata when available. Treat `relation = "active" | "archived" | "legacy"` as
+the zk-lsp lifecycle source of truth.
+
 `memory-dream edit <id>` prints the source note path by default. Read or patch that source file only when the task requires direct note editing. Do not patch `artifact/Memory.md` or `artifact/memory/*.md`.
 
 Treat `Memory.md` as an agent bootloader: it should orient behavior and route to high-value entry cards, not become a long README or a dump of every note. Normal project work should preserve that shape.
@@ -79,6 +83,22 @@ memory-dream link <id> --build
 ```
 
 `link` is idempotent and appends the note reference to `index.typ`. Do not use it as a routine end-of-session step.
+
+## Lifecycle Control
+
+When a memory card should be marked active, archived, or legacy, use the
+dedicated lifecycle command instead of editing metadata by hand:
+
+```bash
+memory-dream lifecycle <id> active --build
+memory-dream lifecycle <id> archived --build
+memory-dream lifecycle <id> legacy --build
+```
+
+The command updates the top-level `relation` key in zk-lsp metadata and creates
+a metadata block for older notes that do not have one. Use `archived` for notes
+that are no longer current but remain useful history, and `legacy` for retained
+historical context that should not guide new work by default.
 
 ## Guardrails
 
